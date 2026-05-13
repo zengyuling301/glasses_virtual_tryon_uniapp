@@ -11,7 +11,18 @@
 cd glasses_virtual_tryon
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+```
+
+（阿里云、腾讯云等镜像同理，将 `-i` / `trusted-host` 换成对应地址即可。）
+
+**说明**：`face_landmarker.task` 与演示人脸图从 **Google Storage / GitHub** 拉取；若在国内直连失败，请先导出本机代理再运行（脚本内 `download_file` 会读取 `http_proxy` / `https_proxy` / `ALL_PROXY`）：
+
+```bash
+export http_proxy=http://127.0.0.1:1087
+export https_proxy=http://127.0.0.1:1087
+export ALL_PROXY=socks5://127.0.0.1:1080
+python demo/try_on.py --demo
 ```
 
 ## 一键演示

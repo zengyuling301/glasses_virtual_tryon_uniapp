@@ -13,7 +13,10 @@ Tune PUPIL_* / EYELINE_FRAC to match your frame PNG layout.
 from __future__ import annotations
 
 import argparse
+import ssl
 import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -57,12 +60,33 @@ def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def download_file(url: str, dest: Path) -> None:
+def download_file(url: str, dest: Path, *, attempts: int = 4) -> None:
+    """Fetch URL to disk. Uses ``http_proxy`` / ``https_proxy`` / ``ALL_PROXY`` via ``getproxies()``."""
     ensure_parent(dest)
     print(f"Downloading:\n  {url}\n -> {dest}")
+    proxies = urllib.request.getproxies()
+    if proxies:
+        print(f"Using proxies: {proxies}")
+    ctx = ssl.create_default_context()
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler(proxies),
+        urllib.request.HTTPSHandler(context=ctx),
+    )
     req = urllib.request.Request(url, headers={"User-Agent": "glasses_virtual_tryon/1.0"})
-    with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
-        dest.write_bytes(resp.read())
+    last_err: BaseException | None = None
+    for i in range(attempts):
+        try:
+            with opener.open(req, timeout=180) as resp:  # noqa: S310
+                dest.write_bytes(resp.read())
+            return
+        except (OSError, urllib.error.URLError) as e:
+            last_err = e
+            if i + 1 < attempts:
+                wait = 2**i
+                print(f"Download failed ({e}); retry in {wait}s …", file=sys.stderr)
+                time.sleep(wait)
+    assert last_err is not None
+    raise last_err
 
 
 def ensure_model(model_path: Path) -> None:
@@ -168,11 +192,10 @@ def overlay_glasses_bgra(
     )
 
     out = face_bgr.astype(np.float32)
-    b, g, r, a = cv2.split(warped)
-    a = a.astype(np.float32) / 255.0
+    b, g, r, a = cv2.split(warped.astype(np.float32))
+    a = a / 255.0
     a3 = np.stack([a, a, a], axis=-1)
-    wb, wg, wr = cv2.split(warped.astype(np.float32))
-    fg = np.stack([wb, wg, wr], axis=-1)
+    fg = np.stack([b, g, r], axis=-1)
     comp = out * (1.0 - a3) + fg * a3
     return np.clip(comp, 0, 255).astype(np.uint8)
 
