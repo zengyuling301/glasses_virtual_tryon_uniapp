@@ -1,11 +1,25 @@
 # glasses_virtual_tryon
 
-眼镜虚拟试戴 **MVP 技术方案**见 `docs/glasses_tryon_mvp.md`。本仓库提供最小 **Python Demo**：**MediaPipe Face Landmarker**（Tasks API）做人脸关键点，**透明 PNG 镜框**按瞳距缩放、旋转后 **Alpha 叠加**到人脸图。
+眼镜虚拟试戴的 **MVP 技术方案**见 [`docs/glasses_tryon_mvp.md`](docs/glasses_tryon_mvp.md)。本仓库实现 **2D 位图叠加**：**MediaPipe Face Landmarker**（Tasks API）做人脸关键点，**带 Alpha 的镜框 PNG** 按瞳距缩放、旋转后与自拍 **Alpha 合成**；Web 端在此基础上增加 **颊宽/瞳距归一化分档** 与镜架元数据规则，输出可解释的匹配状态与静态试戴图。
+
+## 仓库结构
+
+| 路径 | 说明 |
+|------|------|
+| `docs/glasses_tryon_mvp.md` | 产品与技术边界（MVP、预警、工时粗估等） |
+| `demo/try_on.py` | 命令行试戴：下载模型、检测、叠加；含 `compose_try_on_bgr` 供 Web 复用 |
+| `demo/app.py` | Flask Web：上传/拍照 → 分析 → 试戴 PNG |
+| `demo/face_match.py` | 面宽代理指标、S/M/L 分档、`MATCH` / `WARN_*` 规则 |
+| `demo/mvp_assets.py` | 生成 `assets/frames/catalog.json` 与 Demo 线框 PNG |
+| `demo/templates/mvp.html` | 单页前端（界面状态文案为中文；API 仍为英文枚举） |
+| `demo/static/mvp.css` | 页面样式 |
+| `assets/frames/` | 镜架 PNG + `catalog.json`（SKU 与瞳距锚点参数） |
+| `demo/run_custom_example.sh` | 随机头像 / Twemoji 等一键示例 |
 
 ## 环境
 
 - Python **3.9+**（与 MediaPipe 官方 wheel 匹配；建议 3.10/3.11）
-- 需要能访问 **Google Storage**（下载 `face_landmarker.task`）与演示用人脸图 URL（`--demo` 时）
+- 首次下载 **`face_landmarker.task`** 需能访问 **Google Storage**；`--demo` 还会拉取 OpenCV 示例人脸 **GitHub** URL
 
 ```bash
 cd glasses_virtual_tryon
@@ -14,9 +28,9 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
 ```
 
-（阿里云、腾讯云等镜像同理，将 `-i` / `trusted-host` 换成对应地址即可。）
+依赖要点：`mediapipe`、`opencv-python-headless`、`numpy`、`Pillow`、**`flask`**（Web MVP）。
 
-**说明**：`face_landmarker.task` 与演示人脸图从 **Google Storage / GitHub** 拉取；若在国内直连失败，请先导出本机代理再运行（脚本内 `download_file` 会读取 `http_proxy` / `https_proxy` / `ALL_PROXY`）：
+国内若直连官方资源失败，可在同一 shell 中配置代理后再运行（`demo/try_on.py` 内 `download_file` 会读取 `http_proxy` / `https_proxy` / `ALL_PROXY`）：
 
 ```bash
 export http_proxy=http://127.0.0.1:1087
@@ -25,66 +39,77 @@ export ALL_PROXY=socks5://127.0.0.1:1080
 python demo/try_on.py --demo
 ```
 
-## 一键演示
+## Web MVP（推荐演示）
 
-下载模型、生成本地占位镜框 PNG、拉取 OpenCV 示例人脸并输出合成图：
-
-```bash
-python demo/try_on.py --demo
-# 默认输出: out/try_on.png
-```
-
-## Web MVP 界面（拍照 / 上传 → 面宽推荐 → 试戴图）
-
-本地静态页面：上传或调用相机采集正面人脸，按「颊宽 / 瞳距」分档（S/M/L）与镜架库元数据做可解释匹配（`MATCH` / `WARN_*`），再调用与 CLI 相同的 MediaPipe + 2D 叠加生成试戴 PNG。
+流程：**上传或拍照（正面）→ 分析面宽分档 → 按规则推荐镜架 → 选择 SKU 生成试戴 PNG**。
 
 ```bash
 source .venv/bin/activate
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-python demo/try_on.py --init-assets   # 若尚无 face_landmarker.task
-python demo/mvp_assets.py              # 生成镜架目录 catalog.json 与三款 Demo 线框 PNG（可重复执行）
-python demo/app.py                     # 浏览器打开 http://127.0.0.1:5050
+python demo/try_on.py --init-assets   # 若尚无 assets/face_landmarker.task
+python demo/mvp_assets.py             # 写入 catalog 与 mvp_*.png；加 --force 可覆盖
+python demo/app.py                    # 浏览器访问 http://127.0.0.1:5050
 ```
 
-说明：首次启动 `demo/app.py` 也会自动补全缺失的 `assets/frames/catalog.json` 与线框素材。镜架元数据见 `assets/frames/catalog.json`，规则与文档 `docs/glasses_tryon_mvp.md` 中的「分档 + 预警」一致；商品图为 Demo 线框，正式环境请替换为带 Alpha 的商品 PNG 并校准各 SKU 的瞳距锚点参数。
+- 首次启动 `demo/app.py` 时，若缺少 `assets/frames/catalog.json` 或线框图，也会尝试自动补全（逻辑在 `mvp_assets.ensure_mvp_catalog`）。
+- 结束服务：在运行 `app.py` 的终端 **Ctrl+C**，或结束对应 Python 进程。
 
-## 自备照片
+**HTTP 接口（便于联调）**
 
-先准备资源（模型 + 示例镜框，若无则生成）：
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/` | 单页界面 |
+| `GET` | `/api/catalog` | 镜架列表 JSON |
+| `POST` | `/api/analyze` | `multipart/form-data` 字段 `face`：返回指标与推荐（`match_status` 为 `MATCH` / `WARN_TOO_NARROW` / `WARN_TOO_WIDE` / `LOW_CONFIDENCE`） |
+| `POST` | `/api/tryon` | 字段 `face` + `frame_id`：返回合成 **PNG** |
+
+正式商品请替换 `assets/frames/` 下透明 PNG，并在 `catalog.json` 中为每 SKU 配置 **`pupil_left_frac` / `pupil_right_frac` / `eyeline_frac`**（与镜圈光学中心对齐），以及业务字段（如 `band`、标称毫米宽等）。规则与方案文档中的「分档 + 预警」一致。
+
+**注意**：Jinja2 会解析模板里的 `{{ … }}`。若在 `mvp.html` 的内联脚本中书写含双花括号的注释或字符串，需使用 `{% raw %}…{% endraw %}` 或避免 `{{`，否则首页会 500。
+
+## 命令行一键演示
+
+下载模型、生成本地示例镜框、拉取 OpenCV 示例人脸并输出合成图：
+
+```bash
+python demo/try_on.py --demo
+# 默认输出: out/try_on.png（目录见 .gitignore）
+```
+
+## 命令行：自备人脸与镜框
+
+先准备模型与示例镜框（若无则生成）：
 
 ```bash
 python demo/try_on.py --init-assets
 ```
 
-再指定人脸与镜框（镜框需带 **Alpha**，且与脚本内 `PUPIL_*` / `EYELINE_FRAC` 对齐设计）：
+再指定人脸与镜框（镜框需带 **Alpha**，且与设计稿一致的 **`PUPIL_*` / `EYELINE_FRAC`** 对齐）：
 
 ```bash
 python demo/try_on.py --face /path/to/selfie.jpg --glasses assets/frames/sample.png --out out/mine.png
 ```
 
-## 换人脸 / 换镜框再跑一遍（示例）
+## 换人脸 / 换镜框示例脚本
 
-仓库提供脚本：下载 **512×512 随机头像**（pravatar）、**圆框 PNG（脚本内生成）**、以及 **Twemoji 眼镜位图**，各跑一张结果：
+下载 **512×512 随机头像**（pravatar）、脚本生成的圆框、以及 **Twemoji** 眼镜位图，各输出一张：
 
 ```bash
 chmod +x demo/run_custom_example.sh   # 仅需一次
-./demo/run_custom_example.sh 52       # 可选：pravatar 的 img 编号，默认 52
+./demo/run_custom_example.sh 52         # 可选 pravatar 图片编号，默认 52
 ```
 
-输出：`out/demo_custom_round.png`、`out/demo_custom_twemoji.png`。若拉取 pravatar / jsDelivr 需代理，先在当前 shell 里 `export http_proxy=...` 再执行脚本。
+输出：`out/demo_custom_round.png`、`out/demo_custom_twemoji.png`。若访问 pravatar / jsDelivr 需代理，请先在同一 shell 中 `export http_proxy=...`。
 
-Twemoji 资源版权归 Twitter / X，授权以官方说明为准（通常需保留归属说明）；正式商用请替换为自有商品素材。
+Twemoji 资源版权归 Twitter / X，授权以官方说明为准；正式商用请替换为自有商品素材。
 
-## 调参
+## 调参（CLI 与默认镜框）
 
-在 `demo/try_on.py` 顶部常量（默认值与 `write_sample_glasses_png` 双圈示例一致）：
+在 `demo/try_on.py` 顶部常量（与 `write_sample_glasses_png` 双圈示例一致）：
 
-- `PUPIL_LEFT_FRAC` / `PUPIL_RIGHT_FRAC`：镜框 PNG 上 **左右镜片光学中心** 的水平位置（0～1，且左侧数值须小于右侧）。
-- `EYELINE_FRAC`：镜片中心的纵向位置（0～1）。
+- `PUPIL_LEFT_FRAC` / `PUPIL_RIGHT_FRAC`：镜框 PNG 上 **左右镜片光学中心** 的水平比例（0～1，左须小于右）。
+- `EYELINE_FRAC`：镜片中心纵向比例（0～1）。
 
-人脸侧对齐使用 **虹膜环质心**（478 点模型末段 468–477）；若模型无虹膜点则退回内眦 133/362。瞳距按 **瞳孔（虹膜）中心** 计算，一般会比内眦略大，镜框整体也会略放大。
-
-命令行可覆盖（便于不同商品 PNG 微调）：
+对齐使用 **虹膜环质心**（478 点模型 468–477）；无虹膜点时退回内眦 133/362。命令行可覆盖：
 
 ```bash
 python demo/try_on.py --face a.jpg --glasses g.png --out out/x.png \
@@ -93,8 +118,8 @@ python demo/try_on.py --face a.jpg --glasses g.png --out out/x.png \
 
 ## 为何不是 InsightFace
 
-InsightFace 更强在识别/属性，试戴骨架只需稳定关键点；MediaPipe **安装与授权路径更简单**，故 Demo 优先 MediaPipe。若后续要统一人脸业务栈，可将 `detect_landmarks_rgb` 换为 InsightFace 输出同构的 `(N,3)` 像素坐标即可。
+InsightFace 更强在识别与属性；试戴骨架只需稳定关键点。MediaPipe **安装与授权路径更简单**，故 Demo 优先 MediaPipe。若后续要统一人脸业务栈，可将 `detect_landmarks_rgb` 换为 InsightFace，并保持同构的 `(N,3)` 像素坐标输出。
 
 ## 许可说明
 
-`--demo` 使用的测试人脸为 OpenCV 仓库中的经典示例图，仅用于本地技术验证；正式产品请使用自有素材与合规授权。
+`--demo` 使用的测试人脸来自 OpenCV 仓库经典示例图，仅用于本地技术验证；正式产品请使用自有素材与合规授权。

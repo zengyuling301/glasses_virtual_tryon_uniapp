@@ -117,6 +117,16 @@
       return "warn";
     }
 
+    function matchStatusLabel(st) {
+      const labels = {
+        MATCH: "匹配",
+        WARN_TOO_NARROW: "预警：镜架偏窄",
+        WARN_TOO_WIDE: "预警：镜架偏宽",
+        LOW_CONFIDENCE: "低置信度",
+      };
+      return labels[st] || st;
+    }
+
     analyzeBtn.addEventListener("click", async () => {
       if (!currentFile) return;
       analyzeBtn.disabled = true;
@@ -157,7 +167,7 @@
             ' <span class="badge ' +
             badgeClass(r.match_status) +
             '">' +
-            r.match_status +
+            matchStatusLabel(r.match_status) +
             "</span></div>" +
             '<div class="rec-meta">' +
             (r.mm_total_width ? "标称总宽约 " + r.mm_total_width + " mm · " : "") +
@@ -170,7 +180,7 @@
 
           const opt = document.createElement("option");
           opt.value = r.id;
-          opt.textContent = r.name + " (" + r.match_status + ")";
+          opt.textContent = r.name + "（" + matchStatusLabel(r.match_status) + "）";
           frameSelect.appendChild(opt);
         });
         frameSelect.disabled = lastRecs.length === 0;
