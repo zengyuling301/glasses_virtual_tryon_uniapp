@@ -15,3 +15,8 @@ venv/
 .vscode/
 *.swp
 *.swo
+
+# Demo assets (downloaded / generated)
+assets/face_landmarker.task
+assets/cache/
+out/
