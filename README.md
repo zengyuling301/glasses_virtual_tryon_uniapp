@@ -34,6 +34,20 @@ python demo/try_on.py --demo
 # 默认输出: out/try_on.png
 ```
 
+## Web MVP 界面（拍照 / 上传 → 面宽推荐 → 试戴图）
+
+本地静态页面：上传或调用相机采集正面人脸，按「颊宽 / 瞳距」分档（S/M/L）与镜架库元数据做可解释匹配（`MATCH` / `WARN_*`），再调用与 CLI 相同的 MediaPipe + 2D 叠加生成试戴 PNG。
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+python demo/try_on.py --init-assets   # 若尚无 face_landmarker.task
+python demo/mvp_assets.py              # 生成镜架目录 catalog.json 与三款 Demo 线框 PNG（可重复执行）
+python demo/app.py                     # 浏览器打开 http://127.0.0.1:5050
+```
+
+说明：首次启动 `demo/app.py` 也会自动补全缺失的 `assets/frames/catalog.json` 与线框素材。镜架元数据见 `assets/frames/catalog.json`，规则与文档 `docs/glasses_tryon_mvp.md` 中的「分档 + 预警」一致；商品图为 Demo 线框，正式环境请替换为带 Alpha 的商品 PNG 并校准各 SKU 的瞳距锚点参数。
+
 ## 自备照片
 
 先准备资源（模型 + 示例镜框，若无则生成）：

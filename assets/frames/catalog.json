@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "frames": [
+    {
+      "id": "frame-narrow",
+      "name": "窄版圆框",
+      "band": "S",
+      "image": "mvp_narrow.png",
+      "pupil_left_frac": 0.36,
+      "pupil_right_frac": 0.64,
+      "eyeline_frac": 0.5,
+      "mm_total_width": 128,
+      "blurb": "镜圈总宽偏小，适合脸颊相对较窄的脸型。"
+    },
+    {
+      "id": "frame-medium",
+      "name": "标准圆框",
+      "band": "M",
+      "image": "mvp_medium.png",
+      "pupil_left_frac": 0.32,
+      "pupil_right_frac": 0.68,
+      "eyeline_frac": 0.5,
+      "mm_total_width": 138,
+      "blurb": "中等镜圈宽度，适合大多数脸型。"
+    },
+    {
+      "id": "frame-wide",
+      "name": "加宽圆框",
+      "band": "L",
+      "image": "mvp_wide.png",
+      "pupil_left_frac": 0.28,
+      "pupil_right_frac": 0.72,
+      "eyeline_frac": 0.5,
+      "mm_total_width": 148,
+      "blurb": "镜圈总宽偏大，适合脸颊相对较宽的脸型。"
+    }
+  ]
+}

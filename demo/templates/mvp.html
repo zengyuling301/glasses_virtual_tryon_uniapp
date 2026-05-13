@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>眼镜虚拟试戴 · MVP Demo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='mvp.css') }}" />
+</head>
+<body>
+  <header class="hero">
+    <h1>眼镜虚拟试戴 MVP</h1>
+    <p class="sub">
+      上传或拍摄正面人脸 → 根据面宽分档推荐镜架 → 生成静态试戴示意图（2D 叠加，非毫米级测量）。
+    </p>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>1. 人脸照片</h2>
+      <p class="hint">建议正面、光线均匀、无墨镜口罩。手机可用「拍照」直接采集。</p>
+      <div class="upload-row">
+        <label class="btn primary">
+          选择图片
+          <input id="fileInput" type="file" accept="image/*" hidden />
+        </label>
+        <label class="btn">
+          拍照
+          <input id="cameraInput" type="file" accept="image/*" capture="user" hidden />
+        </label>
+      </div>
+      <div id="thumbWrap" class="thumb-wrap hidden">
+        <img id="thumb" alt="预览" />
+      </div>
+      <p id="fileLabel" class="muted"></p>
+      <button id="analyzeBtn" class="btn primary full" type="button" disabled>分析面宽并推荐镜架</button>
+      <p id="statusLine" class="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>2. 面宽与推荐</h2>
+      <div id="metrics" class="metrics hidden">
+        <div><span class="k">颊宽 / 瞳距</span><span id="mRatio" class="v"></span></div>
+        <div><span class="k">面宽分档</span><span id="mBand" class="v pill"></span></div>
+        <div><span class="k">瞳距(px)</span><span id="mIpd" class="v"></span></div>
+      </div>
+      <ul id="recList" class="rec-list"></ul>
+    </section>
+
+    <section class="card span-2">
+      <h2>3. 试戴效果图</h2>
+      <p class="hint">从推荐列表选择一款镜架，生成 PNG 示意图（商品素材为 Demo 线框）。</p>
+      <div class="tryon-row">
+        <div>
+          <label for="frameSelect">当前镜架</label>
+          <select id="frameSelect" disabled></select>
+        </div>
+        <button id="tryonBtn" class="btn primary" type="button" disabled>生成试戴图</button>
+      </div>
+      <div id="resultWrap" class="result-wrap hidden">
+        <img id="resultImg" alt="试戴效果" />
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>本页为技术验证 Demo：匹配结论为可解释分档规则，不替代验光与线下试戴。详见仓库 <code>docs/glasses_tryon_mvp.md</code>。</p>
+  </footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fileInput = $("fileInput");
+    const cameraInput = $("cameraInput");
+    const thumb = $("thumb");
+    const thumbWrap = $("thumbWrap");
+    const fileLabel = $("fileLabel");
+    const analyzeBtn = $("analyzeBtn");
+    const tryonBtn = $("tryonBtn");
+    const frameSelect = $("frameSelect");
+    const statusLine = $("statusLine");
+    const metricsEl = $("metrics");
+    const recList = $("recList");
+    const resultWrap = $("resultWrap");
+    const resultImg = $("resultImg");
+
+    let currentFile = null;
+    let lastRecs = [];
+
+    function setStatus(msg, isError) {
+      statusLine.textContent = msg || "";
+      statusLine.classList.toggle("err", !!isError);
+    }
+
+    function onPicked(file) {
+      if (!file) return;
+      currentFile = file;
+      fileLabel.textContent = file.name + "（" + (file.size / 1024).toFixed(0) + " KB）";
+      const url = URL.createObjectURL(file);
+      thumb.src = url;
+      thumb.onload = () => URL.revokeObjectURL(url);
+      thumbWrap.classList.remove("hidden");
+      analyzeBtn.disabled = false;
+      tryonBtn.disabled = true;
+      frameSelect.innerHTML = "";
+      frameSelect.disabled = true;
+      metricsEl.classList.add("hidden");
+      recList.innerHTML = "";
+      resultWrap.classList.add("hidden");
+      setStatus("");
+    }
+
+    fileInput.addEventListener("change", () => onPicked(fileInput.files && fileInput.files[0]));
+    cameraInput.addEventListener("change", () => onPicked(cameraInput.files && cameraInput.files[0]));
+
+    function badgeClass(st) {
+      if (st === "MATCH") return "ok";
+      if (st === "LOW_CONFIDENCE") return "warn";
+      return "warn";
+    }
+
+    analyzeBtn.addEventListener("click", async () => {
+      if (!currentFile) return;
+      analyzeBtn.disabled = true;
+      setStatus("分析中…");
+      const fd = new FormData();
+      fd.append("face", currentFile);
+      try {
+        const res = await fetch("/api/analyze", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!data.ok) {
+          setStatus(data.message || "分析失败", true);
+          analyzeBtn.disabled = false;
+          return;
+        }
+        const m = data.metrics;
+        $("mRatio").textContent = m.cheek_over_ipd;
+        $("mBand").textContent = m.band === "S" ? "偏窄 (S)" : m.band === "M" ? "中等 (M)" : "偏宽 (L)";
+        $("mIpd").textContent = m.ipd_px;
+        metricsEl.classList.remove("hidden");
+        if (m.low_confidence) {
+          setStatus(m.low_confidence_reason || "低置信度", true);
+        } else {
+          setStatus("分析完成。以下为按面宽分档排序的镜架列表。");
+        }
+
+        lastRecs = data.recommendations || [];
+        recList.innerHTML = "";
+        frameSelect.innerHTML = "";
+        lastRecs.forEach((r, i) => {
+          const li = document.createElement("li");
+          li.className = "rec-item";
+          li.innerHTML =
+            '<div class="rec-title">' +
+            r.name +
+            ' <span class="tag">' +
+            r.band +
+            "档</span>" +
+            ' <span class="badge ' +
+            badgeClass(r.match_status) +
+            '">' +
+            r.match_status +
+            "</span></div>" +
+            '<div class="rec-meta">' +
+            (r.mm_total_width ? "标称总宽约 " + r.mm_total_width + " mm · " : "") +
+            (r.blurb || "") +
+            "</div>" +
+            '<div class="rec-msg">' +
+            r.match_message +
+            "</div>";
+          recList.appendChild(li);
+
+          const opt = document.createElement("option");
+          opt.value = r.id;
+          opt.textContent = r.name + " (" + r.match_status + ")";
+          frameSelect.appendChild(opt);
+        });
+        frameSelect.disabled = lastRecs.length === 0;
+        tryonBtn.disabled = lastRecs.length === 0;
+        analyzeBtn.disabled = false;
+      } catch (e) {
+        setStatus("网络或服务异常：" + e, true);
+        analyzeBtn.disabled = false;
+      }
+    });
+
+    tryonBtn.addEventListener("click", async () => {
+      if (!currentFile || frameSelect.disabled) return;
+      tryonBtn.disabled = true;
+      setStatus("生成试戴图…");
+      const fd = new FormData();
+      fd.append("face", currentFile);
+      fd.append("frame_id", frameSelect.value);
+      try {
+        const res = await fetch("/api/tryon", { method: "POST", body: fd });
+        if (!res.ok) {
+          const t = await res.text();
+          setStatus("生成失败：" + t, true);
+          tryonBtn.disabled = false;
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        resultImg.src = url;
+        resultImg.onload = () => URL.revokeObjectURL(url);
+        resultWrap.classList.remove("hidden");
+        setStatus("已生成试戴示意图（线框 Demo 素材）。");
+        tryonBtn.disabled = false;
+      } catch (e) {
+        setStatus("请求失败：" + e, true);
+        tryonBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

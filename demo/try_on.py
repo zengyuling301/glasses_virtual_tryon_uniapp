@@ -277,6 +277,43 @@ def run_try_on(
     print(f"Wrote: {out_path}")
 
 
+def compose_try_on_bgr(
+    face_bgr: np.ndarray,
+    glasses_bgra: np.ndarray,
+    model_path: Path,
+    *,
+    pupil_left_frac: float | None = None,
+    pupil_right_frac: float | None = None,
+    eyeline_frac: float | None = None,
+) -> np.ndarray:
+    """
+    Run detection + overlay in memory. ``face_bgr`` / ``glasses_bgra`` are OpenCV BGR / BGRA uint8.
+    Raises ``RuntimeError`` if no face is detected.
+    """
+    ensure_model(model_path)
+    if glasses_bgra.shape[2] == 3:
+        glasses_bgra = cv2.cvtColor(glasses_bgra, cv2.COLOR_BGR2BGRA)
+        glasses_bgra[:, :, 3] = 255
+
+    rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+    landmarker = build_face_landmarker(model_path)
+    try:
+        lms = detect_landmarks_rgb(landmarker, rgb)
+    finally:
+        landmarker.close()
+    if lms is None:
+        raise RuntimeError("No face detected. Try a clearer frontal photo.")
+
+    return overlay_glasses_bgra(
+        face_bgr,
+        glasses_bgra,
+        lms,
+        pupil_left_frac=pupil_left_frac,
+        pupil_right_frac=pupil_right_frac,
+        eyeline_frac=eyeline_frac,
+    )
+
+
 def cmd_init_assets(args: argparse.Namespace) -> None:
     ensure_model(Path(args.model))
     gpath = Path(args.glasses)
