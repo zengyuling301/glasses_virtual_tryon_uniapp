@@ -48,6 +48,19 @@ python demo/try_on.py --init-assets
 python demo/try_on.py --face /path/to/selfie.jpg --glasses assets/frames/sample.png --out out/mine.png
 ```
 
+## 换人脸 / 换镜框再跑一遍（示例）
+
+仓库提供脚本：下载 **512×512 随机头像**（pravatar）、**圆框 PNG（脚本内生成）**、以及 **Twemoji 眼镜位图**，各跑一张结果：
+
+```bash
+chmod +x demo/run_custom_example.sh   # 仅需一次
+./demo/run_custom_example.sh 52       # 可选：pravatar 的 img 编号，默认 52
+```
+
+输出：`out/demo_custom_round.png`、`out/demo_custom_twemoji.png`。若拉取 pravatar / jsDelivr 需代理，先在当前 shell 里 `export http_proxy=...` 再执行脚本。
+
+Twemoji 资源版权归 Twitter / X，授权以官方说明为准（通常需保留归属说明）；正式商用请替换为自有商品素材。
+
 ## 调参
 
 在 `demo/try_on.py` 顶部常量：
