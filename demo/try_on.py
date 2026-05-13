@@ -7,7 +7,8 @@ Minimal glasses try-on skeleton: MediaPipe Face Landmarker + 2D PNG overlay.
   python demo/try_on.py --demo            # init assets, fetch a test portrait, run overlay
 
 Landmark indices follow the MediaPipe face mesh convention (478-point model).
-Tune PUPIL_* / EYELINE_FRAC to match your frame PNG layout.
+Tune PUPIL_* / EYELINE_FRAC to match **lens optical centers** in your glasses PNG,
+or pass --pupil-left-frac / --pupil-right-frac / --eyeline-frac.
 """
 
 from __future__ import annotations
@@ -32,15 +33,19 @@ except ImportError as e:  # pragma: no cover
     print("Missing dependency. Run: pip install -r requirements.txt", file=sys.stderr)
     raise e
 
-# Inner canthi (subject's right inner -> left inner in image coordinates).
+# Fallback eye anchors if iris indices are missing (old models).
 LM_RIGHT_INNER = 133
 LM_LEFT_INNER = 362
+# MediaPipe Face Landmarker 478 pts: iris rings at end of list (see Google Face Mesh iris).
+LM_IRIS_RIGHT_START = 473
+LM_IRIS_LEFT_START = 468
 
-# In the *glasses PNG*, horizontal span between "pupil centers" as fraction of image width [0,1].
-PUPIL_LEFT_FRAC = 0.30
-PUPIL_RIGHT_FRAC = 0.70
-# Vertical position of pupil line from top of glasses PNG [0,1].
-EYELINE_FRAC = 0.46
+# In the *glasses PNG*, **lens center** horizontal positions as fraction of width [0,1].
+# Must match how `write_sample_glasses_png` / your product art places each lens hub.
+PUPIL_LEFT_FRAC = 0.32
+PUPIL_RIGHT_FRAC = 0.68
+# Vertical position of lens centers from top of glasses PNG [0,1].
+EYELINE_FRAC = 0.50
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL = PROJECT_ROOT / "assets" / "face_landmarker.task"
@@ -96,22 +101,22 @@ def ensure_model(model_path: Path) -> None:
 
 
 def write_sample_glasses_png(dest: Path) -> None:
-    """A simple wireframe-style frame for smoke tests (not a real product asset)."""
+    """Wireframe frame with two lens openings; lens hubs align with PUPIL_* / EYELINE_FRAC in this file."""
     from PIL import Image, ImageDraw
 
     ensure_parent(dest)
     w, h = 900, 420
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    pad = 40
-    draw.rounded_rectangle(
-        (pad, pad, w - pad, h - pad),
-        radius=60,
-        outline=(35, 35, 35, 255),
-        width=10,
-    )
-    # Bridge hint
-    draw.line((w // 2, pad + 20, w // 2, h - pad - 20), fill=(35, 35, 35, 200), width=6)
+    cx1 = int(PUPIL_LEFT_FRAC * w)
+    cx2 = int(PUPIL_RIGHT_FRAC * w)
+    cy = int(EYELINE_FRAC * h)
+    r = int(min(w, h) * 0.19)
+    for cx in (cx1, cx2):
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(35, 35, 35, 255), width=10)
+    draw.line((cx1 + int(r * 0.55), cy, cx2 - int(r * 0.55), cy), fill=(35, 35, 35, 230), width=8)
+    draw.line((cx1 - r, cy, 18, cy + 8), fill=(35, 35, 35, 200), width=7)
+    draw.line((cx2 + r, cy, w - 18, cy + 8), fill=(35, 35, 35, 200), width=7)
     img.save(dest, format="PNG")
     print(f"Wrote sample glasses PNG: {dest}")
 
@@ -146,17 +151,40 @@ def detect_landmarks_rgb(landmarker, rgb: np.ndarray):
     return pts
 
 
+def iris_centers_xy(landmarks_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return (right_iris_xy, left_iris_xy) in image pixels.
+    Uses iris ring landmarks when present (478-pt model); else falls back to inner canthi.
+    """
+    n = landmarks_xy.shape[0]
+    if n > LM_IRIS_RIGHT_START + 4:
+        left_ring = landmarks_xy[468:473, :2]
+        right_ring = landmarks_xy[473:478, :2]
+        pl = np.mean(left_ring, axis=0)
+        pr = np.mean(right_ring, axis=0)
+        # Frontal face: subject's left eye is on the image right (larger x).
+        if pl[0] < pr[0]:
+            pr, pl = pl, pr
+        return pr, pl
+    pr = landmarks_xy[LM_RIGHT_INNER, :2]
+    pl = landmarks_xy[LM_LEFT_INNER, :2]
+    return pr, pl
+
+
 def overlay_glasses_bgra(
     face_bgr: np.ndarray,
     glasses_bgra: np.ndarray,
     landmarks_xy: np.ndarray,
+    *,
+    pupil_left_frac: float | None = None,
+    pupil_right_frac: float | None = None,
+    eyeline_frac: float | None = None,
 ) -> np.ndarray:
     """
-    Affine: map glasses PNG (pupil line anchor) to face inner-canthi geometry.
+    Similarity transform: map lens centers in glasses PNG to iris centers on the face.
     """
     h, w = face_bgr.shape[:2]
-    pr = landmarks_xy[LM_RIGHT_INNER, :2]
-    pl = landmarks_xy[LM_LEFT_INNER, :2]
+    pr, pl = iris_centers_xy(landmarks_xy)
     vec = pl - pr
     ipd = float(np.linalg.norm(vec))
     if ipd < 1.0:
@@ -164,8 +192,14 @@ def overlay_glasses_bgra(
     center = (pr + pl) / 2.0
     angle_deg = float(np.degrees(np.arctan2(vec[1], vec[0])))
 
+    plf = float(pupil_left_frac if pupil_left_frac is not None else PUPIL_LEFT_FRAC)
+    prf = float(pupil_right_frac if pupil_right_frac is not None else PUPIL_RIGHT_FRAC)
+    eyf = float(eyeline_frac if eyeline_frac is not None else EYELINE_FRAC)
+    if not (0.0 <= plf < prf <= 1.0 and 0.0 <= eyf <= 1.0):
+        raise ValueError("Invalid pupil / eyeline fractions.")
+
     gh, gw = glasses_bgra.shape[:2]
-    span_g = (PUPIL_RIGHT_FRAC - PUPIL_LEFT_FRAC) * float(gw)
+    span_g = (prf - plf) * float(gw)
     if span_g < 1.0:
         raise ValueError("Invalid glasses PNG width or pupil fractions.")
     scale = ipd / span_g
@@ -173,8 +207,8 @@ def overlay_glasses_bgra(
     new_h = max(1, int(round(gh * scale)))
     resized = cv2.resize(glasses_bgra, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-    ax = (PUPIL_LEFT_FRAC + PUPIL_RIGHT_FRAC) / 2.0 * new_w
-    ay = EYELINE_FRAC * new_h
+    ax = (plf + prf) / 2.0 * new_w
+    ay = eyf * new_h
 
     theta = np.radians(angle_deg)
     c, s = float(np.cos(theta)), float(np.sin(theta))
@@ -200,7 +234,16 @@ def overlay_glasses_bgra(
     return np.clip(comp, 0, 255).astype(np.uint8)
 
 
-def run_try_on(face_path: Path, glasses_path: Path, out_path: Path, model_path: Path) -> None:
+def run_try_on(
+    face_path: Path,
+    glasses_path: Path,
+    out_path: Path,
+    model_path: Path,
+    *,
+    pupil_left_frac: float | None = None,
+    pupil_right_frac: float | None = None,
+    eyeline_frac: float | None = None,
+) -> None:
     ensure_model(model_path)
     face_bgr = cv2.imread(str(face_path), cv2.IMREAD_COLOR)
     if face_bgr is None:
@@ -221,7 +264,14 @@ def run_try_on(face_path: Path, glasses_path: Path, out_path: Path, model_path: 
     if lms is None:
         raise RuntimeError("No face detected. Try a clearer frontal photo.")
 
-    out_bgr = overlay_glasses_bgra(face_bgr, glasses_bgra, lms)
+    out_bgr = overlay_glasses_bgra(
+        face_bgr,
+        glasses_bgra,
+        lms,
+        pupil_left_frac=pupil_left_frac,
+        pupil_right_frac=pupil_right_frac,
+        eyeline_frac=eyeline_frac,
+    )
     ensure_parent(out_path)
     cv2.imwrite(str(out_path), out_bgr)
     print(f"Wrote: {out_path}")
@@ -235,6 +285,14 @@ def cmd_init_assets(args: argparse.Namespace) -> None:
     print("Assets ready.")
 
 
+def _frac_args(args: argparse.Namespace) -> dict:
+    return {
+        "pupil_left_frac": args.pupil_left_frac,
+        "pupil_right_frac": args.pupil_right_frac,
+        "eyeline_frac": args.eyeline_frac,
+    }
+
+
 def cmd_demo(args: argparse.Namespace) -> None:
     cmd_init_assets(args)
     cache = PROJECT_ROOT / "assets" / "cache"
@@ -243,7 +301,7 @@ def cmd_demo(args: argparse.Namespace) -> None:
     if not face_path.is_file() or args.force_demo_face:
         download_file(DEMO_FACE_URL, face_path)
     out_path = Path(args.out)
-    run_try_on(face_path, Path(args.glasses), out_path, Path(args.model))
+    run_try_on(face_path, Path(args.glasses), out_path, Path(args.model), **_frac_args(args))
 
 
 def main() -> None:
@@ -256,6 +314,24 @@ def main() -> None:
     p.add_argument("--force-sample", action="store_true", help="Overwrite sample glasses PNG")
     p.add_argument("--force-demo-face", action="store_true", help="Re-download demo face image")
     p.add_argument("--face", type=str, default="", help="Input face image (BGR readable by OpenCV)")
+    p.add_argument(
+        "--pupil-left-frac",
+        type=float,
+        default=None,
+        help="Glasses PNG: horizontal fraction [0-1] of **left lens center** (default: module constant)",
+    )
+    p.add_argument(
+        "--pupil-right-frac",
+        type=float,
+        default=None,
+        help="Glasses PNG: horizontal fraction of **right lens center** (default: module constant)",
+    )
+    p.add_argument(
+        "--eyeline-frac",
+        type=float,
+        default=None,
+        help="Glasses PNG: vertical fraction [0-1] of lens-center height (default: module constant)",
+    )
     args = p.parse_args()
 
     if args.init_assets and not args.demo:
@@ -271,7 +347,13 @@ def main() -> None:
         print("\nError: provide --face <path>, or use --demo / --init-assets.", file=sys.stderr)
         sys.exit(2)
 
-    run_try_on(Path(args.face), Path(args.glasses), Path(args.out), Path(args.model))
+    run_try_on(
+        Path(args.face),
+        Path(args.glasses),
+        Path(args.out),
+        Path(args.model),
+        **_frac_args(args),
+    )
 
 
 if __name__ == "__main__":

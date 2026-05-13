@@ -21,12 +21,15 @@ python - <<'PY'
 from pathlib import Path
 from PIL import Image, ImageDraw
 
+# Keep in sync with demo/try_on.py defaults: PUPIL_LEFT_FRAC, PUPIL_RIGHT_FRAC, EYELINE_FRAC
+PLF, PRF, EYF = 0.32, 0.68, 0.50
+
 out = Path("assets/cache/custom_glasses_round.png")
 w, h = 880, 400
 img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
 d = ImageDraw.Draw(img)
-cx1, cx2 = int(w * 0.34), int(w * 0.66)
-cy = int(h * 0.50)
+cx1, cx2 = int(PLF * w), int(PRF * w)
+cy = int(EYF * h)
 r = int(min(w, h) * 0.19)
 for cx in (cx1, cx2):
     d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(18, 18, 22, 255), width=9)
@@ -48,9 +51,11 @@ echo "==> Glasses (Twemoji bitmap) -> assets/cache/custom_glasses_twemoji.png"
 curl -fsSL -o assets/cache/custom_glasses_twemoji.png "${TWEMOJI_GLASSES_URL}"
 
 echo "==> Try-on (Twemoji glasses) -> out/demo_custom_twemoji.png"
+# Twemoji asset is tiny; lens hubs are slightly inset vs default constants — override if needed.
 python demo/try_on.py \
   --face assets/cache/custom_face.jpg \
   --glasses assets/cache/custom_glasses_twemoji.png \
+  --pupil-left-frac 0.36 --pupil-right-frac 0.64 --eyeline-frac 0.48 \
   --out out/demo_custom_twemoji.png
 
 ls -la out/demo_custom_round.png out/demo_custom_twemoji.png

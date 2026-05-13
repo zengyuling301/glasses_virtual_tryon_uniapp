@@ -63,11 +63,19 @@ Twemoji 资源版权归 Twitter / X，授权以官方说明为准（通常需保
 
 ## 调参
 
-在 `demo/try_on.py` 顶部常量：
+在 `demo/try_on.py` 顶部常量（默认值与 `write_sample_glasses_png` 双圈示例一致）：
 
-- `PUPIL_LEFT_FRAC` / `PUPIL_RIGHT_FRAC`：镜框 PNG 上「两瞳中心」水平占宽比例（0～1）
-- `EYELINE_FRAC`：瞳高线在镜框图上的纵向比例（0～1）
-- `LM_RIGHT_INNER` / `LM_LEFT_INNER`：MediaPipe 478 点模型内眦索引（默认 133 / 362）
+- `PUPIL_LEFT_FRAC` / `PUPIL_RIGHT_FRAC`：镜框 PNG 上 **左右镜片光学中心** 的水平位置（0～1，且左侧数值须小于右侧）。
+- `EYELINE_FRAC`：镜片中心的纵向位置（0～1）。
+
+人脸侧对齐使用 **虹膜环质心**（478 点模型末段 468–477）；若模型无虹膜点则退回内眦 133/362。瞳距按 **瞳孔（虹膜）中心** 计算，一般会比内眦略大，镜框整体也会略放大。
+
+命令行可覆盖（便于不同商品 PNG 微调）：
+
+```bash
+python demo/try_on.py --face a.jpg --glasses g.png --out out/x.png \
+  --pupil-left-frac 0.30 --pupil-right-frac 0.70 --eyeline-frac 0.52
+```
 
 ## 为何不是 InsightFace
 
