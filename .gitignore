@@ -1,0 +1,17 @@
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.local
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
