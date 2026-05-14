@@ -28,7 +28,7 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
 ```
 
-依赖要点：`mediapipe`、`opencv-python-headless`、`numpy`、`Pillow`、**`flask`**（Web MVP）。
+依赖要点：`mediapipe`、`opencv-python-headless`、`numpy`、`Pillow`、**`pillow-heif`**（iPhone **HEIC** 相册上传）、**`flask`**（Web MVP）。若已建 venv，更新依赖后需重新执行 `pip install -r requirements.txt …`。
 
 国内若直连官方资源失败，可在同一 shell 中配置代理后再运行（`demo/try_on.py` 内 `download_file` 会读取 `http_proxy` / `https_proxy` / `ALL_PROXY`）：
 
@@ -47,10 +47,11 @@ python demo/try_on.py --demo
 source .venv/bin/activate
 python demo/try_on.py --init-assets   # 若尚无 assets/face_landmarker.task
 python demo/mvp_assets.py             # 写入 catalog 与 mvp_*.png；加 --force 可覆盖
-python demo/app.py                    # 浏览器访问 http://127.0.0.1:5050
+python demo/app.py                    # 本机 http://127.0.0.1:5050 ；同网手机用 http://<电脑局域网IP>:5050
 ```
 
 - 首次启动 `demo/app.py` 时，若缺少 `assets/frames/catalog.json` 或线框图，也会尝试自动补全（逻辑在 `mvp_assets.ensure_mvp_catalog`）。
+- **上传大小**：默认单张约 **40MB**（`demo/app.py` 中 `MVP_MAX_UPLOAD_MB`）；超过会返回 **413** 与 JSON 说明。前面若有 **Nginx**，需同步增大 `client_max_body_size`，否则会先被 Nginx 拦下并返回 HTML 413。
 - 结束服务：在运行 `app.py` 的终端 **Ctrl+C**，或结束对应 Python 进程。
 
 **HTTP 接口（便于联调）**
@@ -59,10 +60,11 @@ python demo/app.py                    # 浏览器访问 http://127.0.0.1:5050
 |------|------|------|
 | `GET` | `/` | 单页界面 |
 | `GET` | `/api/catalog` | 镜架列表 JSON |
-| `POST` | `/api/analyze` | `multipart/form-data` 字段 `face`：返回指标与推荐（`match_status` 为 `MATCH` / `WARN_TOO_NARROW` / `WARN_TOO_WIDE` / `LOW_CONFIDENCE`） |
+| `GET` | `/api/frame-preview/<frame_id>` | 返回该款镜架 PNG 线框图，供推荐列表缩略图展示 |
+| `POST` | `/api/analyze` | `multipart/form-data` 字段 `face`：返回指标与推荐（`match_status` 为 `MATCH` / `WARN_TOO_NARROW` / `WARN_TOO_WIDE` / `LOW_CONFIDENCE`）；每条推荐含 `image` 文件名 |
 | `POST` | `/api/tryon` | 字段 `face` + `frame_id`：返回合成 **PNG** |
 
-正式商品请替换 `assets/frames/` 下透明 PNG，并在 `catalog.json` 中为每 SKU 配置 **`pupil_left_frac` / `pupil_right_frac` / `eyeline_frac`**（与镜圈光学中心对齐），以及业务字段（如 `band`、标称毫米宽等）。规则与方案文档中的「分档 + 预警」一致。
+正式商品请替换 `assets/frames/` 下透明 PNG，并在 `catalog.json` 中为每 SKU 配置 **`pupil_left_frac` / `pupil_right_frac` / `eyeline_frac`**（与镜圈光学中心对齐；试戴时脸侧锚点为**眼内外眼角中点**，纵向可配 **`nose_bridge_blend`** 混合鼻梁），以及业务字段（如 `band`、标称毫米宽等）。规则与方案文档中的「分档 + 预警」一致。
 
 **注意**：Jinja2 会解析模板里的 `{{ … }}`。若在 `mvp.html` 的内联脚本中书写含双花括号的注释或字符串，需使用 `{% raw %}…{% endraw %}` 或避免 `{{`，否则首页会 500。
 

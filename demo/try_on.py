@@ -7,8 +7,14 @@ Minimal glasses try-on skeleton: MediaPipe Face Landmarker + 2D PNG overlay.
   python demo/try_on.py --demo            # init assets, fetch a test portrait, run overlay
 
 Landmark indices follow the MediaPipe face mesh convention (478-point model).
-Tune PUPIL_* / EYELINE_FRAC to match **lens optical centers** in your glasses PNG,
-or pass --pupil-left-frac / --pupil-right-frac / --eyeline-frac.
+
+**Try-on alignment (2D):** lens hubs in the PNG map to **eye-socket centers** (midpoint
+of inner/outer canthus per eye), not iris rings—reduces shift when the subject looks
+off-camera. The PNG ``eyeline`` anchor is placed at a blend of **between-eyes** and
+**nose bridge** (dorsum) for vertical stability vs gaze-only eye height.
+
+Tune ``PUPIL_*`` / ``EYELINE_FRAC`` to match lens centers in your glasses PNG, or pass
+``--pupil-left-frac`` / ``--pupil-right-frac`` / ``--eyeline-frac``.
 """
 
 from __future__ import annotations
@@ -36,9 +42,18 @@ except ImportError as e:  # pragma: no cover
 # Fallback eye anchors if iris indices are missing (old models).
 LM_RIGHT_INNER = 133
 LM_LEFT_INNER = 362
+# Eye canthi for geometric eye center (478-point topology; less gaze-sensitive than iris).
+LM_RIGHT_OUTER = 33
+LM_LEFT_OUTER = 263
+# Nose bridge / glabella region (stable for vertical eyeline vs iris-only height).
+LM_NOSE_BRIDGE = 168
+LM_NOSE_BRIDGE_ALT = 6
 # MediaPipe Face Landmarker 478 pts: iris rings at end of list (see Google Face Mesh iris).
 LM_IRIS_RIGHT_START = 473
 LM_IRIS_LEFT_START = 468
+
+# Vertical blend: 0 = between-eyes only, 1 = nose bridge only (see overlay_glasses_bgra).
+NOSE_BRIDGE_BLEND = 0.28
 
 # In the *glasses PNG*, **lens center** horizontal positions as fraction of width [0,1].
 # Must match how `write_sample_glasses_png` / your product art places each lens hub.
@@ -171,6 +186,34 @@ def iris_centers_xy(landmarks_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return pr, pl
 
 
+def eye_socket_centers_xy(landmarks_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return (pr, pl) = (subject's right eye center, subject's left eye center) in pixels,
+    each as midpoint of outer/inner canthus. More stable under gaze yaw than iris centroids.
+    """
+    n = landmarks_xy.shape[0]
+    if n <= max(LM_LEFT_OUTER, LM_LEFT_INNER, LM_RIGHT_OUTER, LM_RIGHT_INNER):
+        return iris_centers_xy(landmarks_xy)
+    pts = landmarks_xy
+    r_c = (pts[LM_RIGHT_OUTER, :2] + pts[LM_RIGHT_INNER, :2]) / 2.0
+    l_c = (pts[LM_LEFT_OUTER, :2] + pts[LM_LEFT_INNER, :2]) / 2.0
+    pr, pl = r_c, l_c
+    if pr[0] > pl[0]:
+        pr, pl = pl, pr
+    return pr, pl
+
+
+def nose_bridge_xy(landmarks_xy: np.ndarray) -> np.ndarray:
+    """2D nose bridge / radix-ish point for blending with eye-level (image pixels)."""
+    n = landmarks_xy.shape[0]
+    if n > LM_NOSE_BRIDGE:
+        return landmarks_xy[LM_NOSE_BRIDGE, :2].copy()
+    if n > LM_NOSE_BRIDGE_ALT:
+        return landmarks_xy[LM_NOSE_BRIDGE_ALT, :2].copy()
+    pr, pl = eye_socket_centers_xy(landmarks_xy)
+    return (pr + pl) / 2.0
+
+
 def overlay_glasses_bgra(
     face_bgr: np.ndarray,
     glasses_bgra: np.ndarray,
@@ -179,17 +222,27 @@ def overlay_glasses_bgra(
     pupil_left_frac: float | None = None,
     pupil_right_frac: float | None = None,
     eyeline_frac: float | None = None,
+    nose_bridge_blend: float | None = None,
 ) -> np.ndarray:
     """
-    Similarity transform: map lens centers in glasses PNG to iris centers on the face.
+    Similarity transform: map lens hubs in the glasses PNG to **eye-socket centers**
+    (canthus midpoints) for scale/rotation; vertical anchor blends eye midline with
+    nose bridge so the frame sits more like real glasses under gaze / mild yaw.
     """
     h, w = face_bgr.shape[:2]
-    pr, pl = iris_centers_xy(landmarks_xy)
+    pr, pl = eye_socket_centers_xy(landmarks_xy)
     vec = pl - pr
     ipd = float(np.linalg.norm(vec))
     if ipd < 1.0:
-        raise ValueError("Interpupillary distance too small; bad landmarks?")
-    center = (pr + pl) / 2.0
+        raise ValueError("Eye span too small; bad landmarks?")
+    eye_mid = (pr + pl) / 2.0
+    nb = nose_bridge_xy(landmarks_xy)
+    alpha = float(nose_bridge_blend if nose_bridge_blend is not None else NOSE_BRIDGE_BLEND)
+    alpha = max(0.0, min(1.0, alpha))
+    center = np.array(
+        [eye_mid[0], (1.0 - alpha) * eye_mid[1] + alpha * nb[1]],
+        dtype=np.float64,
+    )
     angle_deg = float(np.degrees(np.arctan2(vec[1], vec[0])))
 
     plf = float(pupil_left_frac if pupil_left_frac is not None else PUPIL_LEFT_FRAC)
@@ -243,6 +296,7 @@ def run_try_on(
     pupil_left_frac: float | None = None,
     pupil_right_frac: float | None = None,
     eyeline_frac: float | None = None,
+    nose_bridge_blend: float | None = None,
 ) -> None:
     ensure_model(model_path)
     face_bgr = cv2.imread(str(face_path), cv2.IMREAD_COLOR)
@@ -251,30 +305,65 @@ def run_try_on(
     glasses_bgra = cv2.imread(str(glasses_path), cv2.IMREAD_UNCHANGED)
     if glasses_bgra is None:
         raise FileNotFoundError(f"Could not read glasses PNG: {glasses_path}")
-    if glasses_bgra.shape[2] == 3:
-        glasses_bgra = cv2.cvtColor(glasses_bgra, cv2.COLOR_BGR2BGRA)
-        glasses_bgra[:, :, 3] = 255
 
-    rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-    landmarker = build_face_landmarker(model_path)
-    try:
-        lms = detect_landmarks_rgb(landmarker, rgb)
-    finally:
-        landmarker.close()
+    lms = detect_face_landmarks_bgr(face_bgr, model_path)
     if lms is None:
         raise RuntimeError("No face detected. Try a clearer frontal photo.")
 
-    out_bgr = overlay_glasses_bgra(
+    out_bgr = compose_try_on_bgr_from_landmarks(
         face_bgr,
         glasses_bgra,
         lms,
         pupil_left_frac=pupil_left_frac,
         pupil_right_frac=pupil_right_frac,
         eyeline_frac=eyeline_frac,
+        nose_bridge_blend=nose_bridge_blend,
     )
     ensure_parent(out_path)
     cv2.imwrite(str(out_path), out_bgr)
     print(f"Wrote: {out_path}")
+
+
+def prepare_glasses_bgra(glasses_bgra: np.ndarray) -> np.ndarray:
+    if glasses_bgra.shape[2] == 3:
+        out = cv2.cvtColor(glasses_bgra, cv2.COLOR_BGR2BGRA)
+        out[:, :, 3] = 255
+        return out
+    return glasses_bgra
+
+
+def detect_face_landmarks_bgr(face_bgr: np.ndarray, model_path: Path) -> np.ndarray | None:
+    """Return (N,3) landmark array in pixels, or None if no face."""
+    ensure_model(model_path)
+    rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+    landmarker = build_face_landmarker(model_path)
+    try:
+        return detect_landmarks_rgb(landmarker, rgb)
+    finally:
+        landmarker.close()
+
+
+def compose_try_on_bgr_from_landmarks(
+    face_bgr: np.ndarray,
+    glasses_bgra: np.ndarray,
+    landmarks_xy: np.ndarray,
+    *,
+    pupil_left_frac: float | None = None,
+    pupil_right_frac: float | None = None,
+    eyeline_frac: float | None = None,
+    nose_bridge_blend: float | None = None,
+) -> np.ndarray:
+    """Overlay glasses given precomputed face landmarks (BGR face, BGR/BGRA glasses)."""
+    gb = prepare_glasses_bgra(glasses_bgra)
+    return overlay_glasses_bgra(
+        face_bgr,
+        gb,
+        landmarks_xy,
+        pupil_left_frac=pupil_left_frac,
+        pupil_right_frac=pupil_right_frac,
+        eyeline_frac=eyeline_frac,
+        nose_bridge_blend=nose_bridge_blend,
+    )
 
 
 def compose_try_on_bgr(
@@ -285,32 +374,24 @@ def compose_try_on_bgr(
     pupil_left_frac: float | None = None,
     pupil_right_frac: float | None = None,
     eyeline_frac: float | None = None,
+    nose_bridge_blend: float | None = None,
 ) -> np.ndarray:
     """
     Run detection + overlay in memory. ``face_bgr`` / ``glasses_bgra`` are OpenCV BGR / BGRA uint8.
     Raises ``RuntimeError`` if no face is detected.
     """
     ensure_model(model_path)
-    if glasses_bgra.shape[2] == 3:
-        glasses_bgra = cv2.cvtColor(glasses_bgra, cv2.COLOR_BGR2BGRA)
-        glasses_bgra[:, :, 3] = 255
-
-    rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-    landmarker = build_face_landmarker(model_path)
-    try:
-        lms = detect_landmarks_rgb(landmarker, rgb)
-    finally:
-        landmarker.close()
+    lms = detect_face_landmarks_bgr(face_bgr, model_path)
     if lms is None:
         raise RuntimeError("No face detected. Try a clearer frontal photo.")
-
-    return overlay_glasses_bgra(
+    return compose_try_on_bgr_from_landmarks(
         face_bgr,
         glasses_bgra,
         lms,
         pupil_left_frac=pupil_left_frac,
         pupil_right_frac=pupil_right_frac,
         eyeline_frac=eyeline_frac,
+        nose_bridge_blend=nose_bridge_blend,
     )
 
 
@@ -327,6 +408,7 @@ def _frac_args(args: argparse.Namespace) -> dict:
         "pupil_left_frac": args.pupil_left_frac,
         "pupil_right_frac": args.pupil_right_frac,
         "eyeline_frac": args.eyeline_frac,
+        "nose_bridge_blend": args.nose_bridge_blend,
     }
 
 
@@ -368,6 +450,12 @@ def main() -> None:
         type=float,
         default=None,
         help="Glasses PNG: vertical fraction [0-1] of lens-center height (default: module constant)",
+    )
+    p.add_argument(
+        "--nose-bridge-blend",
+        type=float,
+        default=None,
+        help="Face vertical anchor: 0=eye midline only, 1=nose bridge only (default: module constant)",
     )
     args = p.parse_args()
 
