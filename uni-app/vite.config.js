@@ -4,7 +4,7 @@ import uni from '@dcloudio/vite-plugin-uni'
 export default defineConfig({
   plugins: [uni()],
   optimizeDeps: {
-    include: ['@mediapipe/tasks-vision'],
+    include: ['@mediapipe/tasks-vision', '@framefind/core', 'onnxruntime-web'],
   },
   server: {
     host: '0.0.0.0',

@@ -78,6 +78,7 @@
 import { clearSession, setFacePath } from '../../utils/session.js'
 import { getH5CameraBlockReason, pickImageViaNativeInput } from '../../utils/h5Env.js'
 import { hapticReady } from '../../utils/haptic.js'
+import { drawVideoToCanvas, H5_MIRROR_FRONT_PREVIEW } from '../../utils/h5Camera.js'
 
 export default {
   data() {
@@ -145,6 +146,12 @@ export default {
         this.guideLoop = null
       }
       this.guideReadyWas = false
+      import('../../utils/glassesGuard.js')
+        .then((m) => {
+          m.resetGlassesGuardThrottle()
+          m.disposeGlassesDetector()
+        })
+        .catch(() => {})
     },
     applyGuideState(state) {
       const wasOk = this.ready
@@ -166,7 +173,14 @@ export default {
       this.guideModelLoading = true
       try {
         const { initFaceLandmarker, startVideoGuideLoop } = await import('../../utils/faceGuide.js')
-        await initFaceLandmarker()
+        const { initGlassesDetector } = await import('../../utils/glassesGuard.js')
+        this.hintSub = '正在加载眼镜检测模型…'
+        await Promise.all([
+          initFaceLandmarker(),
+          initGlassesDetector().catch((e) => {
+            console.warn('FrameFind init failed, glasses guard disabled', e)
+          }),
+        ])
         if (!this.h5VideoEl) return
         this.guideLoop = startVideoGuideLoop(this.h5VideoEl, (state) => this.applyGuideState(state))
         this.hintMain = '请将面部置于框内'
@@ -202,7 +216,7 @@ export default {
       this.destroyH5VideoEl()
       const video = document.createElement('video')
       video.setAttribute('data-live-preview', '1')
-      video.className = 'camera-native'
+      video.className = H5_MIRROR_FRONT_PREVIEW ? 'camera-native mirror-fix' : 'camera-native'
       video.autoplay = true
       video.playsInline = true
       video.setAttribute('playsinline', 'true')
@@ -327,7 +341,7 @@ export default {
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       const ctx = canvas.getContext('2d')
-      ctx.drawImage(video, 0, 0)
+      drawVideoToCanvas(ctx, video, canvas.width, canvas.height)
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
       this.stopH5Camera()
       this.goAnalyze(dataUrl)
@@ -476,6 +490,10 @@ $orange: #ff6b00;
   object-fit: cover;
   display: block;
   background: #000;
+}
+.camera-mount :deep(.camera-native.mirror-fix),
+.camera-mount .camera-native.mirror-fix {
+  transform: scaleX(-1);
 }
 
 .preview-still {

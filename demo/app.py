@@ -40,11 +40,17 @@ FRAMES_DIR = PROJECT_ROOT / "assets" / "frames"
 DEFAULT_MODEL = PROJECT_ROOT / "assets" / "face_landmarker.task"
 
 
-def _check_eyewear_on_photo(face_bgr: np.ndarray, pts: np.ndarray) -> tuple[bool, str | None]:
+def _check_eyewear_on_photo(
+    face_bgr: np.ndarray,
+    pts: np.ndarray,
+    *,
+    sensitivity: str = "default",
+) -> tuple[bool, str | None]:
     """在 ``demo/`` 目录下加载 ``photo_guard``（避免遗漏顶层 import 导致 NameError）。"""
     from photo_guard import likely_has_eyewear
 
-    return likely_has_eyewear(face_bgr, pts)
+    return likely_has_eyewear(face_bgr, pts, sensitivity=sensitivity)
+
 
 app = Flask(
     __name__,
@@ -216,13 +222,14 @@ def api_analyze():
             }
         )
 
-    bad_glasses, gmsg = _check_eyewear_on_photo(face_bgr, pts)
-    if bad_glasses:
+    has_glasses, gmsg = _check_eyewear_on_photo(face_bgr, pts, sensitivity="default")
+    if has_glasses:
         return jsonify(
             {
                 "ok": False,
                 "error": "GLASSES_ON_FACE",
-                "message": gmsg or "请摘下眼镜后重新拍摄或上传。",
+                "message": gmsg
+                or "检测到可能已佩戴眼镜或墨镜，请摘下后重新拍摄正面清晰照片。",
             }
         )
 
@@ -281,16 +288,6 @@ def api_tryon():
                 "message": "未检测到人脸，请上传正面、清晰、无强遮挡的自拍。",
             }
         ), 200
-
-    bad_glasses, gmsg = _check_eyewear_on_photo(face_bgr, lms)
-    if bad_glasses:
-        return jsonify(
-            {
-                "ok": False,
-                "error": "GLASSES_ON_FACE",
-                "message": gmsg or "请摘下眼镜后重新拍摄或上传。",
-            }
-        ), 422
 
     plf = spec.get("pupil_left_frac")
     prf = spec.get("pupil_right_frac")

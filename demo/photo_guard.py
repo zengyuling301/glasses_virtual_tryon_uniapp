@@ -91,9 +91,17 @@ def _canny_density(gray_u8: np.ndarray, t1: int, t2: int) -> float:
     return float(np.mean(e > 0))
 
 
-def likely_has_eyewear(face_bgr: np.ndarray, landmarks_xy: np.ndarray) -> tuple[bool, str | None]:
+def likely_has_eyewear(
+    face_bgr: np.ndarray,
+    landmarks_xy: np.ndarray,
+    *,
+    sensitivity: str = "default",
+) -> tuple[bool, str | None]:
     """
     Return (True, user_message) if the image likely already shows glasses/sunglasses on the face.
+
+    ``sensitivity="realtime"``：取景框用，阈值略松，减少「真戴眼镜却检不出」。
+    ``default``：上传分析用，误报更少。
 
     Heuristic only — set env ``MVP_DISABLE_GLASSES_GUARD=1`` to skip (local demo).
     """
@@ -203,28 +211,33 @@ def likely_has_eyewear(face_bgr: np.ndarray, landmarks_xy: np.ndarray) -> tuple[
         "为准确分析瞳距与试戴效果，请摘下眼镜、勿戴墨镜后重新拍摄或上传正面人脸照片。"
     )
 
-    h_eye = _HARD_EYE_VS_CHEEK * stress
-    h_min = _HARD_MIN_EYE_D * abs_boost
-    h_br = _HARD_BRIDGE_VS_CHEEK * (1.0 + 0.22 * (stress - 1.0))
+    # 实时取景：阈值更低 = 对「已戴眼镜」更严格（更易触发提示）
+    rt = sensitivity == "realtime"
+    sens = 0.48 if rt else 1.0
+
+    h_eye = _HARD_EYE_VS_CHEEK * stress * sens
+    h_min = _HARD_MIN_EYE_D * abs_boost * (0.65 if rt else 1.0)
+    h_br = _HARD_BRIDGE_VS_CHEEK * (1.0 + 0.22 * (stress - 1.0)) * (0.72 if rt else 1.0)
 
     hard_hit = ratio >= h_eye and eye_d >= h_min and br_ratio >= h_br
 
-    s_eye = _SOFT_EYE_VS_CHEEK * stress
-    s_min = _SOFT_MIN_EYE_D * abs_boost
-    s_br = _SOFT_BRIDGE_VS_CHEEK * (1.0 + 0.2 * (stress - 1.0))
+    s_eye = _SOFT_EYE_VS_CHEEK * stress * sens
+    s_min = _SOFT_MIN_EYE_D * abs_boost * (0.58 if rt else 1.0)
+    s_br = _SOFT_BRIDGE_VS_CHEEK * (1.0 + 0.2 * (stress - 1.0)) * (0.72 if rt else 1.0)
+    soft_min_eye = (0.012 if rt else 0.02) * abs_boost
     soft_hit = (
         ratio_soft >= s_eye
         and eye_d_soft >= s_min
         and br_soft_ratio >= s_br
-        and eye_d >= 0.02 * abs_boost
+        and eye_d >= soft_min_eye
     )
 
-    g_rat = _GRAD_VS_CHEEK * stress
-    g_min = _GRAD_MIN_EYE * (1.0 + 0.25 * (stress - 1.0))
-    l_rat = _LAP_VS_CHEEK * stress
-    l_min = _LAP_MIN_EYE * (1.0 + 0.2 * (stress - 1.0))
-    f_br = _FUSION_BRIDGE_VS_CHEEK * (1.0 + 0.18 * (stress - 1.0))
-    f_eye = _FUSION_MIN_HARD_EYE_D * abs_boost
+    g_rat = _GRAD_VS_CHEEK * stress * sens
+    g_min = _GRAD_MIN_EYE * (1.0 + 0.25 * (stress - 1.0)) * (0.72 if rt else 1.0)
+    l_rat = _LAP_VS_CHEEK * stress * sens
+    l_min = _LAP_MIN_EYE * (1.0 + 0.2 * (stress - 1.0)) * (0.72 if rt else 1.0)
+    f_br = _FUSION_BRIDGE_VS_CHEEK * (1.0 + 0.18 * (stress - 1.0)) * (0.72 if rt else 1.0)
+    f_eye = _FUSION_MIN_HARD_EYE_D * abs_boost * (0.65 if rt else 1.0)
 
     fusion_hit = (
         eye_grad >= g_min
@@ -235,10 +248,38 @@ def likely_has_eyewear(face_bgr: np.ndarray, landmarks_xy: np.ndarray) -> tuple[
         and eye_d >= f_eye
     )
 
-    # 需「硬判」或「软+纹理」同时成立，降低无眼镜误报
     if hard_hit:
         return True, msg
     if soft_hit and fusion_hit:
         return True, msg
+
+    if rt:
+        br_stress = 1.0 + 0.06 * (stress - 1.0)
+        rt_combo = (
+            ratio >= 1.08 * stress
+            and br_ratio >= 0.86 * br_stress
+            and eye_d >= 0.012 * abs_boost
+        )
+        rt_soft = (
+            ratio_soft >= 1.12 * stress
+            and eye_d_soft >= 0.022 * abs_boost
+            and br_soft_ratio >= 0.84 * br_stress
+        )
+        rt_fusion = (
+            eye_grad / cheek_g >= g_rat * 0.78
+            and eye_lap / cheek_l >= l_rat * 0.78
+            and br_ratio >= 0.86 * br_stress
+            and eye_d >= 0.011 * abs_boost
+        )
+        # 眼周边缘显著（鼻梁略弱也提示，照顾无框/细框）
+        rt_eye = ratio >= 1.12 * stress and eye_d >= 0.013 * abs_boost and eye_d_soft >= 0.02 * abs_boost
+        if rt_combo or rt_soft or rt_fusion or rt_eye:
+            return True, msg
+        if fusion_hit and br_ratio >= 0.82 * br_stress:
+            return True, msg
+        if soft_hit and br_ratio >= 0.82 * br_stress:
+            return True, msg
+        if soft_hit and ratio >= 1.02 * stress:
+            return True, msg
 
     return False, None

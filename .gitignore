@@ -20,4 +20,9 @@ venv/
 assets/face_landmarker.task
 assets/cache/
 out/
-/uni-app/node_modules
+
+# uni-app / Vite（构建产物，本地 npm run build:* 生成）
+uni-app/dist/
+uni-app/unpackage/
+uni-app/node_modules/
+uni-app/.vite/

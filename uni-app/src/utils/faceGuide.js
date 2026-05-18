@@ -166,6 +166,12 @@ export function closeFaceLandmarker() {
     landmarker = null
   }
   initPromise = null
+  import('./glassesGuard.js')
+    .then((m) => {
+      m.resetGlassesGuardThrottle()
+      m.disposeGlassesDetector()
+    })
+    .catch(() => {})
 }
 
 /**
@@ -176,6 +182,7 @@ export function startVideoGuideLoop(video, onState) {
   let raf = 0
   let lastTs = -1
   let loading = false
+  const glassesModPromise = import('./glassesGuard.js')
 
   const tick = async () => {
     raf = requestAnimationFrame(tick)
@@ -192,6 +199,8 @@ export function startVideoGuideLoop(video, onState) {
       const vw = video.videoWidth
       const vh = video.videoHeight
       if (!result.faceLandmarks || !result.faceLandmarks.length) {
+        const gmod = await glassesModPromise
+        gmod.resetGlassesGuardThrottle()
         onState({
           ok: false,
           hints: ['no_face'],
@@ -201,7 +210,12 @@ export function startVideoGuideLoop(video, onState) {
         })
         return
       }
-      onState(assessFaceAlignment(result.faceLandmarks[0], vw, vh))
+      const lm = result.faceLandmarks[0]
+      const gmod = await glassesModPromise
+      const glasses = await gmod.detectGlassesOnVideoAsync(video, lm)
+      let state = assessFaceAlignment(lm, vw, vh)
+      state = gmod.mergeGlassesIntoGuideState(state, glasses)
+      onState(state)
     } catch (_) {
       /* 单帧失败忽略 */
     } finally {

@@ -49,7 +49,13 @@ export default {
         this.statusHint = '正在分析面宽并匹配镜框…'
         const data = await analyzeFace(facePath)
         if (!data.ok) {
-          this.error = data.message || '测算失败'
+          if (data.error === 'GLASSES_ON_FACE') {
+            this.error =
+              data.message ||
+              '检测到可能已佩戴眼镜，请摘下后重新拍摄。\n（取景时若已提示，可忽略本条）'
+          } else {
+            this.error = data.message || '测算失败'
+          }
           return
         }
         const recs = data.recommendations || []
