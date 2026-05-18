@@ -1,7 +1,7 @@
 {
   "name": "开心玉米AI试戴",
   "appid": "__UNI__GLASSES_TRYON",
-  "description": "对接 Flask MVP 算法的 uni-app 试戴前端",
+  "description": "对接 Flask 试戴 API 的 uni-app 前端",
   "versionName": "1.0.0",
   "versionCode": "100",
   "transformPx": false,

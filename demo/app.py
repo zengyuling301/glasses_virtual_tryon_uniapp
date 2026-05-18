@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Minimal MVP web demo: upload face → face-width band → frame recommendations → static try-on PNG.
+Flask API for uni-app: analyze face → recommend frames → static try-on PNG.
 
 Run from repo root (so ``assets/`` resolves):
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, abort, jsonify, request, send_file
 from PIL import Image, ImageOps
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -32,7 +32,6 @@ if str(DEMO_DIR) not in sys.path:
     sys.path.insert(0, str(DEMO_DIR))
 
 import face_match  # noqa: E402
-import mvp_assets  # noqa: E402
 import try_on  # noqa: E402
 
 PROJECT_ROOT = DEMO_DIR.parent
@@ -52,11 +51,7 @@ def _check_eyewear_on_photo(
     return likely_has_eyewear(face_bgr, pts, sensitivity=sensitivity)
 
 
-app = Flask(
-    __name__,
-    template_folder=str(DEMO_DIR / "templates"),
-    static_folder=str(DEMO_DIR / "static"),
-)
+app = Flask(__name__)
 # iPhone 原图 / ProRAW / 相册「未压缩」单张易超过 12MB；可用环境变量 MVP_MAX_UPLOAD_MB 调整（默认 40）
 _max_mb = max(12, int(os.environ.get("MVP_MAX_UPLOAD_MB", "40")))
 app.config["MAX_CONTENT_LENGTH"] = _max_mb * 1024 * 1024
@@ -85,21 +80,18 @@ def _handle_payload_too_large(_e: RequestEntityTooLarge):
         f"图片文件超过服务器单张上限（约 {lim_mb:.0f} MB）。"
         "请在相册中选用「较小」副本、或「压缩并发送」后再上传；也可在本机设置环境变量 MVP_MAX_UPLOAD_MB 提高限制。"
     )
-    if request.path.startswith("/api/"):
-        return jsonify({"ok": False, "error": "PAYLOAD_TOO_LARGE", "message": msg}), 413
-    return (
-        '<!doctype html><meta charset="utf-8"><title>文件过大</title><p>'
-        + msg
-        + "</p>",
-        413,
-        {"Content-Type": "text/html; charset=utf-8"},
-    )
+    return jsonify({"ok": False, "error": "PAYLOAD_TOO_LARGE", "message": msg}), 413
 
 
 def _load_catalog() -> list[dict]:
-    mvp_assets.ensure_mvp_catalog()
-    data = json.loads((FRAMES_DIR / "catalog.json").read_text(encoding="utf-8"))
-    return list(data.get("frames", []))
+    path = FRAMES_DIR / "catalog.json"
+    if not path.is_file():
+        abort(500, description="Missing assets/frames/catalog.json")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    frames = list(data.get("frames", []))
+    if not frames:
+        abort(500, description="catalog.json has no frames")
+    return frames
 
 
 def _frame_by_id(catalog: list[dict], fid: str) -> dict | None:
@@ -172,7 +164,17 @@ def decode_face_upload(file_storage) -> tuple[np.ndarray | None, str | None, str
 
 @app.route("/")
 def index():
-    return render_template("mvp.html")
+    return jsonify(
+        {
+            "service": "glasses-tryon-api",
+            "endpoints": [
+                "GET /api/catalog",
+                "GET /api/frame-preview/<frame_id>",
+                "POST /api/analyze",
+                "POST /api/tryon",
+            ],
+        }
+    )
 
 
 @app.route("/api/catalog")
@@ -329,7 +331,7 @@ def api_tryon():
 
 
 def main() -> None:
-    mvp_assets.ensure_mvp_catalog()
+    _load_catalog()
     try_on.ensure_model(DEFAULT_MODEL)
     # 默认 0.0.0.0 便于同 WiFi 手机访问；不信任局域网时用 MVP_BIND=127.0.0.1
     host = os.environ.get("MVP_BIND", "0.0.0.0")

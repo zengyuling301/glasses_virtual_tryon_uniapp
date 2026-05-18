@@ -1,6 +1,6 @@
 # 开心玉米 AI 试戴 · uni-app 前端
 
-与仓库内 **Flask MVP**（`demo/app.py`）对接，交互对齐《分页框线设计图 v2.1.1》：P1 拍照 → P2 测算 → P3 试戴工作台 + 美化抽屉 + 完成 Sheet。
+与仓库内 **Flask 试戴 API**（`demo/app.py`）对接，交互对齐《分页框线设计图 v2.1.1》：P1 拍照 → P2 测算 → P3 试戴工作台 + 美化抽屉 + 完成 Sheet。
 
 ## 前置：启动后端
 
@@ -8,7 +8,6 @@
 cd ..   # 仓库根目录 glasses_virtual_tryon
 source .venv/bin/activate
 python demo/try_on.py --init-assets
-python demo/mvp_assets.py
 python demo/app.py   # 默认 http://0.0.0.0:5050
 ```
 

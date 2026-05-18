@@ -1,11 +1,11 @@
 {
-  "version": 1,
+  "version": 2,
   "frames": [
     {
       "id": "frame-narrow",
       "name": "窄版圆框",
       "band": "S",
-      "image": "mvp_narrow.png",
+      "image": "sample.png",
       "pupil_left_frac": 0.36,
       "pupil_right_frac": 0.64,
       "eyeline_frac": 0.5,
@@ -16,7 +16,7 @@
       "id": "frame-medium",
       "name": "标准圆框",
       "band": "M",
-      "image": "mvp_medium.png",
+      "image": "sample.png",
       "pupil_left_frac": 0.32,
       "pupil_right_frac": 0.68,
       "eyeline_frac": 0.5,
@@ -27,7 +27,7 @@
       "id": "frame-wide",
       "name": "加宽圆框",
       "band": "L",
-      "image": "mvp_wide.png",
+      "image": "sample.png",
       "pupil_left_frac": 0.28,
       "pupil_right_frac": 0.72,
       "eyeline_frac": 0.5,
