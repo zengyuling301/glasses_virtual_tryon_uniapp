@@ -13,6 +13,7 @@ Run from repo root (so ``assets/`` resolves):
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -53,6 +54,21 @@ app = Flask(
 # iPhone 原图 / ProRAW / 相册「未压缩」单张易超过 12MB；可用环境变量 MVP_MAX_UPLOAD_MB 调整（默认 40）
 _max_mb = max(12, int(os.environ.get("MVP_MAX_UPLOAD_MB", "40")))
 app.config["MAX_CONTENT_LENGTH"] = _max_mb * 1024 * 1024
+
+
+@app.after_request
+def _cors_headers(response):
+    """Allow uni-app H5 / devtools to call this demo API from another origin."""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Tryon-Wrap"
+    return response
+
+
+@app.before_request
+def _api_preflight():
+    if request.method == "OPTIONS" and request.path.startswith("/api/"):
+        return "", 204
 
 
 @app.errorhandler(RequestEntityTooLarge)
@@ -297,8 +313,18 @@ def api_tryon():
     ok, buf = cv2.imencode(".png", out_bgr)
     if not ok:
         abort(500, description="Encode failed.")
+    png_bytes = buf.tobytes()
+    wrap = request.args.get("wrap") == "1" or request.headers.get("X-Tryon-Wrap") == "1"
+    if wrap:
+        return jsonify(
+            {
+                "ok": True,
+                "mime": "image/png",
+                "image_base64": base64.standard_b64encode(png_bytes).decode("ascii"),
+            }
+        )
     return send_file(
-        BytesIO(buf.tobytes()),
+        BytesIO(png_bytes),
         mimetype="image/png",
         as_attachment=False,
         download_name="try_on.png",

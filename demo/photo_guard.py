@@ -17,21 +17,22 @@ _CHEEK_IDX = (234, 454)
 _CHEEK_FLOOR = 0.006
 
 # Base thresholds (near-frontal, stress ≈ 1.0)
-_HARD_EYE_VS_CHEEK = 2.02
-_HARD_MIN_EYE_D = 0.0265
-_HARD_BRIDGE_VS_CHEEK = 1.38
+# 略放宽，减少手机自拍/眉毛/睫毛造成的误报（仍可能漏检真墨镜）
+_HARD_EYE_VS_CHEEK = 2.18
+_HARD_MIN_EYE_D = 0.031
+_HARD_BRIDGE_VS_CHEEK = 1.52
 
-_SOFT_CANNY = (24, 55)
-_SOFT_EYE_VS_CHEEK = 1.45
-_SOFT_MIN_EYE_D = 0.042
-_SOFT_BRIDGE_VS_CHEEK = 1.25
+_SOFT_CANNY = (28, 62)
+_SOFT_EYE_VS_CHEEK = 1.78
+_SOFT_MIN_EYE_D = 0.058
+_SOFT_BRIDGE_VS_CHEEK = 1.52
 
-_GRAD_VS_CHEEK = 1.36
-_GRAD_MIN_EYE = 13.2
-_LAP_VS_CHEEK = 2.0
-_LAP_MIN_EYE = 50.0
-_FUSION_BRIDGE_VS_CHEEK = 1.2
-_FUSION_MIN_HARD_EYE_D = 0.014
+_GRAD_VS_CHEEK = 1.58
+_GRAD_MIN_EYE = 16.5
+_LAP_VS_CHEEK = 2.35
+_LAP_MIN_EYE = 62.0
+_FUSION_BRIDGE_VS_CHEEK = 1.38
+_FUSION_MIN_HARD_EYE_D = 0.018
 
 # Pose: beyond these, require stronger edge evidence
 _ROLL_START_DEG = 6.0
@@ -93,7 +94,18 @@ def _canny_density(gray_u8: np.ndarray, t1: int, t2: int) -> float:
 def likely_has_eyewear(face_bgr: np.ndarray, landmarks_xy: np.ndarray) -> tuple[bool, str | None]:
     """
     Return (True, user_message) if the image likely already shows glasses/sunglasses on the face.
+
+    Heuristic only — set env ``MVP_DISABLE_GLASSES_GUARD=1`` to skip (local demo).
     """
+    import os
+
+    if os.environ.get("MVP_DISABLE_GLASSES_GUARD", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return False, None
+
     if face_bgr is None or face_bgr.size == 0 or landmarks_xy is None:
         return False, None
     h, w = face_bgr.shape[:2]
@@ -195,19 +207,17 @@ def likely_has_eyewear(face_bgr: np.ndarray, landmarks_xy: np.ndarray) -> tuple[
     h_min = _HARD_MIN_EYE_D * abs_boost
     h_br = _HARD_BRIDGE_VS_CHEEK * (1.0 + 0.22 * (stress - 1.0))
 
-    if ratio >= h_eye and eye_d >= h_min and br_ratio >= h_br:
-        return True, msg
+    hard_hit = ratio >= h_eye and eye_d >= h_min and br_ratio >= h_br
 
     s_eye = _SOFT_EYE_VS_CHEEK * stress
     s_min = _SOFT_MIN_EYE_D * abs_boost
     s_br = _SOFT_BRIDGE_VS_CHEEK * (1.0 + 0.2 * (stress - 1.0))
-    if (
+    soft_hit = (
         ratio_soft >= s_eye
         and eye_d_soft >= s_min
         and br_soft_ratio >= s_br
-        and eye_d >= 0.015 * abs_boost
-    ):
-        return True, msg
+        and eye_d >= 0.02 * abs_boost
+    )
 
     g_rat = _GRAD_VS_CHEEK * stress
     g_min = _GRAD_MIN_EYE * (1.0 + 0.25 * (stress - 1.0))
@@ -216,14 +226,19 @@ def likely_has_eyewear(face_bgr: np.ndarray, landmarks_xy: np.ndarray) -> tuple[
     f_br = _FUSION_BRIDGE_VS_CHEEK * (1.0 + 0.18 * (stress - 1.0))
     f_eye = _FUSION_MIN_HARD_EYE_D * abs_boost
 
-    if (
+    fusion_hit = (
         eye_grad >= g_min
         and eye_grad / cheek_g >= g_rat
         and eye_lap >= l_min
         and eye_lap / cheek_l >= l_rat
         and br_ratio >= f_br
         and eye_d >= f_eye
-    ):
+    )
+
+    # 需「硬判」或「软+纹理」同时成立，降低无眼镜误报
+    if hard_hit:
+        return True, msg
+    if soft_hit and fusion_hit:
         return True, msg
 
     return False, None

@@ -20,3 +20,4 @@ venv/
 assets/face_landmarker.task
 assets/cache/
 out/
+/uni-app/node_modules

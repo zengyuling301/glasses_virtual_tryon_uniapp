@@ -1,0 +1,34 @@
+{
+  "pages": [
+    {
+      "path": "pages/capture/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "拍照"
+      }
+    },
+    {
+      "path": "pages/analyzing/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "测算中"
+      }
+    },
+    {
+      "path": "pages/workspace/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "试戴"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f5f7fa"
+  },
+  "easycom": {
+    "autoscan": true,
+    "custom": {}
+  }
+}
