@@ -31,9 +31,6 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --tr
 国内若直连官方资源失败，可在同一 shell 中配置代理后再运行（`demo/try_on.py` 内 `download_file` 会读取 `http_proxy` / `https_proxy` / `ALL_PROXY`）：
 
 ```bash
-export http_proxy=http://127.0.0.1:1087
-export https_proxy=http://127.0.0.1:1087
-export ALL_PROXY=socks5://127.0.0.1:1080
 python demo/try_on.py --demo
 ```
 
