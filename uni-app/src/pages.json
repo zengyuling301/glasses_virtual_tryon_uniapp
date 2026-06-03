@@ -1,6 +1,13 @@
 {
   "pages": [
     {
+      "path": "pages/agreement/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "用户许可协议"
+      }
+    },
+    {
       "path": "pages/capture/index",
       "style": {
         "navigationStyle": "custom",
