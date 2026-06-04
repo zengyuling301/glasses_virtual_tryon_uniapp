@@ -11,12 +11,12 @@
       <text class="header-desc">请仔细阅读以下协议，滑到底部后可确认</text>
     </view>
 
-    <!-- 协议正文滚动区 -->
+    <!-- 协议正文滚动区：动态 px 高度，避开 vh+flex 冲突 -->
     <scroll-view
       class="agreement-scroll"
-      style="height: 60vh"
+      :style="{ height: scrollViewHeight + 'px' }"
       scroll-y
-      :scroll-top="scrollTop"
+      scroll-with-animation
       @scrolltolower="onScrollToBottom"
       @scroll="onScroll"
     >
@@ -49,7 +49,7 @@
         <text class="section-body">您有权随时停止使用本功能，有权要求删除您的面部数据与历史试戴记录。您可在 APP「我的 → 试戴记录」中查看和管理您的历史记录，或联系客服进行数据清除。</text>
         <text class="section-body">如您对本功能的隐私保护或数据处理有任何疑问，可通过 APP 内「意见反馈」渠道联系我们。</text>
 
-        <!-- 底部留白，确保内容有足够高度触发滚动 -->
+        <!-- 底部大留白确保滚动高度充足 -->
         <view class="scroll-spacer" />
       </view>
     </scroll-view>
@@ -82,8 +82,8 @@ export default {
     return {
       statusBarPx: 20,
       safeBottom: 0,
+      scrollViewHeight: 400,
       hasScrolledToBottom: false,
-      scrollTop: 0,
       agreed: false,
     }
   },
@@ -91,19 +91,30 @@ export default {
     const sys = uni.getSystemInfoSync()
     this.statusBarPx = sys.statusBarHeight || 20
     this.safeBottom = sys.safeAreaInsets?.bottom || 0
+    this.calcScrollHeight(sys)
     // 后台并行申请摄像头权限（不影响协议阅读）
     this.preRequestCameraPermission()
   },
   methods: {
+    calcScrollHeight(sys) {
+      // 动态计算 scroll-view 高度：窗口高度 - 顶栏 - header - footer - 安全区
+      const wh = sys.windowHeight || 667
+      const statusH = sys.statusBarHeight || 20
+      // 顶栏约 44px + header 约 40px(标题) + 24px(描述) + 32px(padding*2) = ~140px
+      const navHeaderH = statusH + 44 + 40 + 24 + 32
+      // footer: 按钮 96rpx≈48px + 提示 24rpx≈12px + 声明 22rpx≈11px + padding 约 20px = ~91px
+      const footerH = 48 + 12 + 11 + 20
+      const safeBottom = sys.safeAreaInsets?.bottom || 0
+      this.scrollViewHeight = Math.max(300, wh - navHeaderH - footerH - safeBottom)
+    },
     onScroll(e) {
-      // @scroll 兜底：手动计算滚动位置，跨平台兼容性更好
+      // 修复：uni-app scroll-view @scroll 的 e.detail 没有 clientHeight
+      // 仅依赖 scrollTop 和 scrollHeight：滚动进度 ≥ 88% 即视为到底
       if (this.hasScrolledToBottom) return
-      const detail = e.detail || e.target || {}
+      const detail = e.detail || {}
       const st = detail.scrollTop ?? 0
       const sh = detail.scrollHeight ?? 0
-      const ch = detail.clientHeight ?? 0
-      // 滚动到距底部 16px 以内即视为已到底
-      if (sh > 0 && ch > 0 && st + ch >= sh - 16) {
+      if (sh > 0 && st >= sh * 0.88) {
         this.markScrolledToBottom()
       }
     },
@@ -112,8 +123,9 @@ export default {
       this.markScrolledToBottom()
     },
     markScrolledToBottom() {
+      if (this.hasScrolledToBottom) return
       this.hasScrolledToBottom = true
-      // 震动反馈（仅在支持的机型上生效）
+      // 震动反馈
       // #ifdef APP-PLUS
       plus.device.vibrate(30)
       // #endif
@@ -121,7 +133,6 @@ export default {
     onClose() {
       uni.navigateBack({
         fail: () => {
-          // 无历史栈时退出当前页面
           uni.showToast({ title: '已关闭', icon: 'none', duration: 1000 })
         },
       })
@@ -129,8 +140,6 @@ export default {
     async onAgree() {
       if (!this.hasScrolledToBottom || this.agreed) return
       this.agreed = true
-
-      // 后台已预申请摄像头权限，此处直接跳转拍照页
       uni.redirectTo({
         url: '/pages/capture/index',
         fail: () => {
@@ -139,19 +148,12 @@ export default {
       })
     },
     preRequestCameraPermission() {
-      // 后台并行申请摄像头权限，不阻塞用户阅读协议
       // #ifdef APP-PLUS
       plus.android.requestPermissions(
         ['android.permission.CAMERA'],
-        (_result) => {
-          // 静默处理，不打扰用户
-        },
-        (_error) => {},
+        () => {},
+        () => {},
       )
-      // #endif
-
-      // #ifdef H5
-      // H5 环境下在拍照页才会触发 getUserMedia，此处仅做标记
       // #endif
     },
   },
@@ -161,10 +163,11 @@ export default {
 <style lang="scss" scoped>
 $blue: #1a6dff;
 $orange: #ff6b00;
-$green: #22c55e;
 
 .agreement-page {
-  min-height: 100vh;
+  /* 修复：min-height → height:100vh + overflow:hidden，避免 flex 嵌套高度漂移 */
+  height: 100vh;
+  overflow: hidden;
   background: #f5f7fa;
   display: flex;
   flex-direction: column;
@@ -198,9 +201,8 @@ $green: #22c55e;
   color: #94a3b8;
 }
 
-/* 协议滚动区 */
+/* 协议滚动区 — 高度由 JS 动态绑定 style，不再依赖 flex:1 */
 .agreement-scroll {
-  flex: 1;
   background: #fff;
   border-radius: 24rpx 24rpx 0 0;
   margin: 0 16rpx;
@@ -209,8 +211,8 @@ $green: #22c55e;
 
 .agreement-content {
   padding: 32rpx 40rpx;
-  /* min-height: 120% 确保短内容也有足够高度触发 scrolltolower */
-  min-height: 120%;
+  /* 删除 min-height: 120%，改用 padding-bottom + spacer 保证溢出 */
+  padding-bottom: 160rpx;
 }
 
 .section-title {
@@ -235,8 +237,9 @@ $green: #22c55e;
   text-indent: 2em;
 }
 
+/* 修复：spacer 从 80rpx 提到 400rpx，确保小屏机型也能触发滚动 */
 .scroll-spacer {
-  height: 80rpx;
+  height: 400rpx;
 }
 
 /* 底部操作区 */
