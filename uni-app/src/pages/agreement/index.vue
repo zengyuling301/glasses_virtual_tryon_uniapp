@@ -14,9 +14,11 @@
     <!-- 协议正文滚动区 -->
     <scroll-view
       class="agreement-scroll"
+      style="height: 60vh"
       scroll-y
       :scroll-top="scrollTop"
       @scrolltolower="onScrollToBottom"
+      @scroll="onScroll"
     >
       <view class="agreement-content">
         <text class="section-title">一、服务说明</text>
@@ -93,8 +95,23 @@ export default {
     this.preRequestCameraPermission()
   },
   methods: {
+    onScroll(e) {
+      // @scroll 兜底：手动计算滚动位置，跨平台兼容性更好
+      if (this.hasScrolledToBottom) return
+      const detail = e.detail || e.target || {}
+      const st = detail.scrollTop ?? 0
+      const sh = detail.scrollHeight ?? 0
+      const ch = detail.clientHeight ?? 0
+      // 滚动到距底部 16px 以内即视为已到底
+      if (sh > 0 && ch > 0 && st + ch >= sh - 16) {
+        this.markScrolledToBottom()
+      }
+    },
     onScrollToBottom() {
       if (this.hasScrolledToBottom) return
+      this.markScrolledToBottom()
+    },
+    markScrolledToBottom() {
       this.hasScrolledToBottom = true
       // 震动反馈（仅在支持的机型上生效）
       // #ifdef APP-PLUS
