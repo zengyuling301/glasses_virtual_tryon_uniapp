@@ -9,6 +9,11 @@
     <view class="header">
       <text class="header-title">用户许可协议</text>
       <text class="header-desc">请仔细阅读以下协议，滑到底部后可确认</text>
+      <!-- 调试模式提示条 -->
+      <view v-if="forceMode" class="debug-bar">
+        <text class="debug-text">DEBUG: 强制 {{ forceMode.toUpperCase() }} 模式（跳过真实检测）</text>
+        <text class="debug-close" @tap.stop="forceMode = ''">✕</text>
+      </view>
     </view>
 
     <!-- 协议正文滚动区：动态 px 高度，避开 vh+flex 冲突 -->
@@ -91,13 +96,20 @@ export default {
       hasScrolledToBottom: false,
       agreed: false,
       detecting: false,
+      // 调试：URL 参数 ?forceMode=depth|reference 可跳过真实检测
+      forceMode: '',
     }
   },
-  onLoad() {
+  onLoad(options) {
     const sys = uni.getSystemInfoSync()
     this.statusBarPx = sys.statusBarHeight || 20
     this.safeBottom = sys.safeAreaInsets?.bottom || 0
     this.calcScrollHeight(sys)
+    // 调试模式：URL 参数 ?forceMode=depth|reference 可跳过真实景深检测
+    if (options?.forceMode === 'depth' || options?.forceMode === 'reference') {
+      this.forceMode = options.forceMode
+      console.log('[P0] 调试强制模式已启用:', this.forceMode)
+    }
     // 后台并行申请摄像头权限（不影响协议阅读）
     this.preRequestCameraPermission()
   },
@@ -150,7 +162,8 @@ export default {
 
       try {
         // 景深能力检测：决定 P1 走 depth（无参照物）还是 reference（须持参照物）
-        const result = await detectDepthCapability()
+        // 有 forceMode 时直接传入，跳过真实检测
+        const result = await detectDepthCapability({ forceMode: this.forceMode || undefined })
         console.log('[P0] 景深检测结果:', result)
         const mode = result.hasDepth ? 'depth' : 'reference'
         setCaptureMode(mode)
@@ -161,10 +174,14 @@ export default {
         setCaptureMode('reference')
       } finally {
         this.detecting = false
+        // 跳转 P1 时携带 mode 参数（双重保险，storage + URL）
+        const captureUrl = this.forceMode
+          ? `/pages/capture/index?mode=${this.forceMode}`
+          : '/pages/capture/index'
         uni.redirectTo({
-          url: '/pages/capture/index',
+          url: captureUrl,
           fail: () => {
-            uni.navigateTo({ url: '/pages/capture/index' })
+            uni.navigateTo({ url: captureUrl })
           },
         })
       }
@@ -221,6 +238,28 @@ $orange: #ff6b00;
   margin-top: 12rpx;
   font-size: 26rpx;
   color: #94a3b8;
+}
+
+/* 调试模式提示条 */
+.debug-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16rpx;
+  padding: 12rpx 20rpx;
+  background: #fef3c7;
+  border-radius: 12rpx;
+  border-left: 6rpx solid #f59e0b;
+}
+.debug-text {
+  font-size: 24rpx;
+  color: #92400e;
+  flex: 1;
+}
+.debug-close {
+  font-size: 28rpx;
+  color: #92400e;
+  padding: 4rpx 12rpx;
 }
 
 /* 协议滚动区 — 高度由 JS 动态绑定 style，不再依赖 flex:1 */
