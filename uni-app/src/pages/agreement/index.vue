@@ -64,11 +64,13 @@
       <!-- 确认按钮 -->
       <button
         class="btn-agree"
-        :class="{ 'btn-agree--ready': hasScrolledToBottom }"
-        :disabled="!hasScrolledToBottom"
+        :class="{ 'btn-agree--ready': hasScrolledToBottom, 'btn-agree--loading': detecting }"
+        :disabled="!hasScrolledToBottom || detecting"
         @tap="onAgree"
       >
-        {{ hasScrolledToBottom ? '已阅读并同意' : '请阅读完协议后确认' }}
+        <text v-if="detecting">正在检测设备能力…</text>
+        <text v-else-if="hasScrolledToBottom">已阅读并同意</text>
+        <text v-else>请阅读完协议后确认</text>
       </button>
 
       <text class="legal-text">点击即表示您同意以上用户许可协议的全部条款</text>
@@ -77,6 +79,9 @@
 </template>
 
 <script>
+import { setCaptureMode } from '../../utils/session.js'
+import { detectDepthCapability } from '../../utils/depthDetect.js'
+
 export default {
   data() {
     return {
@@ -85,6 +90,7 @@ export default {
       scrollViewHeight: 400,
       hasScrolledToBottom: false,
       agreed: false,
+      detecting: false,
     }
   },
   onLoad() {
@@ -138,14 +144,30 @@ export default {
       })
     },
     async onAgree() {
-      if (!this.hasScrolledToBottom || this.agreed) return
+      if (!this.hasScrolledToBottom || this.agreed || this.detecting) return
       this.agreed = true
-      uni.redirectTo({
-        url: '/pages/capture/index',
-        fail: () => {
-          uni.navigateTo({ url: '/pages/capture/index' })
-        },
-      })
+      this.detecting = true
+
+      try {
+        // 景深能力检测：决定 P1 走 depth（无参照物）还是 reference（须持参照物）
+        const result = await detectDepthCapability()
+        console.log('[P0] 景深检测结果:', result)
+        const mode = result.hasDepth ? 'depth' : 'reference'
+        setCaptureMode(mode)
+        console.log('[P0] capture_mode 已写入:', mode)
+      } catch (e) {
+        // 检测异常时保守降级为 reference 模式（无景深 → 须持参照物）
+        console.warn('[P0] 景深检测异常，降级为 reference 模式:', e)
+        setCaptureMode('reference')
+      } finally {
+        this.detecting = false
+        uni.redirectTo({
+          url: '/pages/capture/index',
+          fail: () => {
+            uni.navigateTo({ url: '/pages/capture/index' })
+          },
+        })
+      }
     },
     preRequestCameraPermission() {
       // #ifdef APP-PLUS
@@ -281,6 +303,12 @@ $orange: #ff6b00;
   &--ready {
     background: $blue;
     color: #fff;
+  }
+
+  &--loading {
+    background: $blue;
+    color: #fff;
+    opacity: 0.8;
   }
 }
 
