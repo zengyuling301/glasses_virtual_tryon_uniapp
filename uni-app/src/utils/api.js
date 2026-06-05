@@ -1,4 +1,5 @@
 import { API_BASE } from '../config/index.js'
+import { getCaptureMode } from './session.js'
 import { uploadFaceImage, withTimeout } from './upload.js'
 
 const UPLOAD_TIMEOUT_MS = 120000
@@ -12,9 +13,19 @@ export function framePreviewUrl(frameId) {
   return apiUrl(`/api/frame-preview/${encodeURIComponent(frameId)}`)
 }
 
-export function analyzeFace(filePath) {
+export function analyzeFace(filePath, extraParams = {}) {
+  const { captureMode, referenceCalib } = extraParams
+  // 优先使用传入参数，否则从 storage 读取，最终默认 depth
+  const mode = captureMode || getCaptureMode() || 'depth'
+  const formData = {
+    capture_mode: mode,
+    ...(referenceCalib ? { reference_calib: JSON.stringify(referenceCalib) } : {}),
+  }
   return withTimeout(
-    uploadFaceImage(filePath, '/api/analyze', { name: 'face' }),
+    uploadFaceImage(filePath, '/api/analyze', {
+      name: 'face',
+      formData,
+    }),
     UPLOAD_TIMEOUT_MS,
     '测算超时：请确认已启动 python demo/app.py，且 API 地址正确'
   )

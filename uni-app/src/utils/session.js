@@ -3,6 +3,7 @@ const METRICS = 'tryon_metrics'
 const RECS = 'tryon_recommendations'
 const TRYON_CACHE = 'tryon_image_cache'
 const CAPTURE_MODE = 'tryon_capture_mode'
+const REF_CALIB_DATA = 'tryon_ref_calib_data'
 
 export function setFacePath(path) {
   uni.setStorageSync(FACE, path)
@@ -48,11 +49,21 @@ export function getCaptureMode() {
   return uni.getStorageSync(CAPTURE_MODE) || 'depth'
 }
 
+/** 参照物标定数据（reference 模式拍照时写入，上传时携带） */
+export function setRefCalibData(data) {
+  uni.setStorageSync(REF_CALIB_DATA, data || null)
+}
+
+export function getRefCalibData() {
+  return uni.getStorageSync(REF_CALIB_DATA) || null
+}
+
 export function clearSession() {
   uni.removeStorageSync(FACE)
   uni.removeStorageSync(METRICS)
   uni.removeStorageSync(RECS)
   uni.removeStorageSync(TRYON_CACHE)
   uni.removeStorageSync(CAPTURE_MODE)
+  uni.removeStorageSync(REF_CALIB_DATA)
 }
 

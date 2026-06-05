@@ -16,7 +16,7 @@
 
 <script>
 import { analyzeFace, tryOnFace, pingApi } from '../../utils/api.js'
-import { getFacePath, setAnalyzeResult, setTryonCacheEntry } from '../../utils/session.js'
+import { getFacePath, setAnalyzeResult, setTryonCacheEntry, getRefCalibData } from '../../utils/session.js'
 import { API_BASE } from '../../config/index.js'
 
 export default {
@@ -47,7 +47,9 @@ export default {
         this.statusHint = '正在连接测算服务…'
         await pingApi()
         this.statusHint = '正在分析面宽并匹配镜框…'
-        const data = await analyzeFace(facePath)
+        // 读取参照物标定数据（reference 模式时存在），传给后端
+        const refCalib = getRefCalibData()
+        const data = await analyzeFace(facePath, { referenceCalib: refCalib })
         if (!data.ok) {
           if (data.error === 'GLASSES_ON_FACE') {
             this.error =

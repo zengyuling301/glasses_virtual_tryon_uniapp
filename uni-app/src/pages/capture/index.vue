@@ -99,7 +99,7 @@
 </template>
 
 <script>
-import { clearSession, setFacePath, getCaptureMode } from '../../utils/session.js'
+import { clearSession, setFacePath, getCaptureMode, setRefCalibData } from '../../utils/session.js'
 import { getH5CameraBlockReason, pickImageViaNativeInput } from '../../utils/h5Env.js'
 import { hapticReady } from '../../utils/haptic.js'
 import { drawVideoToCanvas, H5_MIRROR_FRONT_PREVIEW } from '../../utils/h5Camera.js'
@@ -481,6 +481,10 @@ export default {
       uni.showToast({ title: '请先对准并等待摄像头就绪', icon: 'none' })
     },
     goAnalyze(filePath) {
+      // reference 模式下将参照物标定数据写入 session，供 P2 上传时携带
+      if (this.captureMode === 'reference' && this.refCalibData) {
+        setRefCalibData(this.refCalibData)
+      }
       clearSession()
       setFacePath(filePath)
       uni.navigateTo({ url: '/pages/analyzing/index' })
