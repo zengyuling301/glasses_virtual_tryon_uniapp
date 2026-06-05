@@ -43,9 +43,32 @@
       />
       <!-- #endif -->
 
-      <view class="align-frame" :class="ready ? 'is-ready' : ''">
+      <!-- depth 模式：人脸对齐框（无参照物） -->
+      <view v-if="captureMode === 'depth'" class="align-frame" :class="ready ? 'is-ready' : ''">
         <view class="align-oval" />
         <view v-if="ready" class="align-dot" />
+      </view>
+
+      <!-- reference 模式：人脸框 + 参照物框（须持参照物） -->
+      <view v-if="captureMode === 'reference'" class="ref-align-area">
+        <!-- 人脸对齐框（上移缩小） -->
+        <view class="ref-face-frame" :class="ready ? 'is-ready' : ''">
+          <view class="face-oval-mini" />
+        </view>
+        <!-- 参照物矩形检测框 -->
+        <view class="ref-object-frame" :class="refDetected ? 'is-ready' : ''" @tap="onRefManualConfirm">
+          <text v-if="!refDetected" class="ref-hint-text">请将参照物置于框内</text>
+          <text v-else class="ref-hint-text ok">参照物已识别</text>
+        </view>
+        <!-- 双达标时显示橙点 -->
+        <view v-if="ready && refDetected" class="align-dot ref-dot" />
+
+        <!-- 首次进入参照物模式的引导遮罩 -->
+        <view v-if="!refGuideDismissed && refGuideStep === 'holding'" class="ref-overlay-guide" @tap.stop>
+          <text class="ref-guide-title">参照物拍照指引</text>
+          <text class="ref-guide-body">请准备一张银行卡（或专用标定卡），水平握于脸颊下方，确保与面部同入镜头</text>
+          <button class="btn-ref-guide-confirm" @tap="dismissRefGuide">我知道了</button>
+        </view>
       </view>
 
       <view v-if="countdown > 0" class="countdown-layer">
@@ -69,13 +92,14 @@
       <button class="btn primary" :disabled="!canShoot || counting" @tap="onShootTap">
         拍 照
       </button>
+      <text v-if="captureMode === 'reference'" class="legal ref-legal-tip">无参照物无法精准测算面宽</text>
       <text class="legal">无美颜无滤镜 · 实时预览拍摄</text>
     </view>
   </view>
 </template>
 
 <script>
-import { clearSession, setFacePath } from '../../utils/session.js'
+import { clearSession, setFacePath, getCaptureMode } from '../../utils/session.js'
 import { getH5CameraBlockReason, pickImageViaNativeInput } from '../../utils/h5Env.js'
 import { hapticReady } from '../../utils/haptic.js'
 import { drawVideoToCanvas, H5_MIRROR_FRONT_PREVIEW } from '../../utils/h5Camera.js'
@@ -105,12 +129,21 @@ export default {
       guideLoop: null,
       guideReadyWas: false,
       guideModelLoading: false,
+      // ===== 拍照模式分支（depth 无参照物 / reference 须持参照物）=====
+      captureMode: 'depth',
+      refDetected: false,
+      refCalibData: null,
+      refGuideStep: 'aligning',   // 'holding'(引导遮罩) | 'aligning'(对齐中) | 'ready'(双达标)
+      refGuideDismissed: false,   // 参照物引导遮罩是否已关闭
     }
   },
-  onLoad() {
+  onLoad(options) {
     const sys = uni.getSystemInfoSync()
     this.statusBarPx = sys.statusBarHeight || 20
     this.safeBottom = sys.safeAreaInsets?.bottom || 0
+    // 读取拍照模式：URL 参数优先 > storage > 默认 depth
+    this.captureMode = options?.mode || getCaptureMode() || 'depth'
+    console.log('[P1] capture_mode:', this.captureMode)
   },
   onReady() {
     // #ifdef H5
@@ -156,7 +189,12 @@ export default {
     applyGuideState(state) {
       const wasOk = this.ready
       this.ready = !!state.ok
-      this.canShoot = !!state.ok && this.h5Live && !this.counting
+      // depth 模式：人脸达标即可；reference 模式：人脸 + 参照物 都要达标
+      if (this.captureMode === 'depth') {
+        this.canShoot = !!state.ok && this.h5Live && !this.counting
+      } else {
+        this.canShoot = !!(state.ok && this.refDetected) && !this.counting
+      }
       this.hintMain = state.hintMain || '请调整姿势'
       this.hintSub = state.hintSub || ''
       if (state.ok && !wasOk) {
@@ -358,6 +396,15 @@ export default {
     },
     markReady() {
       this.ready = true
+      if (this.captureMode === 'reference') {
+        // reference 模式：还需等待参照物达标
+        if (!this.refDetected) {
+          this.canShoot = false
+          this.hintMain = '面部已对准，请将参照物置于框内'
+          this.hintSub = '人脸与参照物均达标后方可拍摄'
+          return
+        }
+      }
       this.canShoot = true
       this.hintMain = '已对准，请点击下方拍摄'
       this.hintSub = '点击后将开始 3 秒倒计时'
@@ -437,6 +484,32 @@ export default {
       clearSession()
       setFacePath(filePath)
       uni.navigateTo({ url: '/pages/analyzing/index' })
+    },
+    // ===== 参照物模式专用方法 =====
+    /** 关闭参照物引导遮罩 */
+    dismissRefGuide() {
+      this.refGuideDismissed = true
+      this.refGuideStep = 'aligning'
+    },
+    /**
+     * 手动确认参照物已放置到位（W1 占位版，W2 替换为真实检测）
+     * 用户点击参照物框区域时触发，标记参照物已就绪
+     */
+    onRefManualConfirm() {
+      if (this.captureMode !== 'reference') return
+      this.refDetected = true
+      this.refCalibData = { method: 'manual', type: 'card' }
+      this.refGuideStep = 'ready'
+      // 重新评估 canShoot：人脸也必须已达标
+      if (this.ready && !this.counting) {
+        this.canShoot = true
+        this.hintMain = '已对准，请点击下方拍摄'
+        this.hintSub = '点击后将开始 3 秒倒计时'
+        hapticReady()
+      } else {
+        this.hintMain = '参照物已识别，请将面部对准人脸框'
+        this.hintSub = '对准后框变绿'
+      }
     },
   },
 }
@@ -625,5 +698,100 @@ $orange: #ff6b00;
   text-align: center;
   font-size: 22rpx;
   color: #64748b;
+}
+.ref-legal-tip {
+  color: $orange;
+}
+
+/* ===== 参照物模式 UI（reference）===== */
+.ref-align-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 12%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 2;
+}
+.ref-face-frame {
+  margin-bottom: 16rpx;
+}
+.face-oval-mini {
+  width: 340rpx;
+  height: 420rpx;
+  border: 4rpx solid $blue;
+  border-radius: 46% 46% 42% 42%;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.30);
+  transition: border-color 0.25s;
+}
+.ref-face-frame.is-ready .face-oval-mini {
+  border-color: $green;
+}
+.ref-object-frame {
+  width: 360rpx;
+  height: 120rpx;
+  border: 3rpx dashed $blue;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.35);
+  transition: border-color 0.25s, background 0.25s;
+  pointer-events: auto; /* 允许点击确认 */
+}
+.ref-object-frame.is-ready {
+  border-color: $green;
+  border-style: solid;
+  background: rgba(34, 197, 94, 0.15);
+}
+.ref-hint-text {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.7);
+}
+.ref-hint-text.ok {
+  color: $green;
+}
+.ref-dot {
+  margin-top: 20rpx;
+}
+/* 参照物引导遮罩 */
+.ref-overlay-guide {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 24rpx;
+  padding: 48rpx 40rpx;
+  pointer-events: auto;
+}
+.ref-guide-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 24rpx;
+}
+.ref-guide-body {
+  font-size: 26rpx;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  margin-bottom: 40rpx;
+}
+.btn-ref-guide-confirm {
+  width: 280rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  border-radius: 38rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  border: none;
+  background: $blue;
+  color: #fff;
 }
 </style>
