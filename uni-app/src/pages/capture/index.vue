@@ -466,11 +466,21 @@ export default {
       // #ifdef APP-PLUS || MP-WEIXIN
       if (this.useLiveCamera && this.cameraReady) {
         const ctx = uni.createCameraContext()
-        ctx.takePhoto({
-          quality: 'high',
-          success: (res) => this.goAnalyze(res.tempImagePath),
-          fail: () => uni.showToast({ title: '拍摄失败', icon: 'none' }),
-        })
+        const doTakePhoto = (isRetry = false) => {
+          ctx.takePhoto({
+            quality: 'high',
+            success: (res) => this.goAnalyze(res.tempImagePath),
+            fail: () => {
+              if (!isRetry) {
+                console.log('[P1] takePhoto fail, auto retry once')
+                doTakePhoto(true)
+              } else {
+                uni.showToast({ title: '拍摄失败，请重试', icon: 'none' })
+              }
+            },
+          })
+        }
+        doTakePhoto()
         return
       }
       // #endif
