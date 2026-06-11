@@ -89,7 +89,7 @@
         <button v-if="canRetryLive" class="btn ghost" @tap="retryH5Camera">重试实时预览</button>
       </view>
       <!-- #endif -->
-      <button class="btn primary" :disabled="!canShoot || counting" @tap="onShootTap">
+      <button class="btn primary" v-show="!counting" :disabled="!canShoot" @tap="onShootTap">
         拍 照
       </button>
       <text v-if="captureMode === 'reference'" class="legal ref-legal-tip">无参照物无法精准测算面宽</text>
