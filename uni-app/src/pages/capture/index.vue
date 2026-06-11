@@ -57,8 +57,8 @@
         </view>
         <!-- 参照物矩形检测框 -->
         <view class="ref-object-frame" :class="refDetected ? 'is-ready' : ''" @tap="onRefManualConfirm">
-          <text v-if="!refDetected" class="ref-hint-text">请将参照物置于框内</text>
-          <text v-else class="ref-hint-text ok">参照物已识别</text>
+          <text v-if="!refDetected" class="ref-hint-text">请将参照物置于框内，点击确认</text>
+          <text v-else class="ref-hint-text ok">参照物已识别 ✓</text>
         </view>
         <!-- 双达标时显示橙点 -->
         <view v-if="ready && refDetected" class="align-dot ref-dot" />
@@ -195,8 +195,24 @@ export default {
       } else {
         this.canShoot = !!(state.ok && this.refDetected) && !this.counting
       }
-      this.hintMain = state.hintMain || '请调整姿势'
-      this.hintSub = state.hintSub || ''
+
+      // reference 模式下，根据参照物状态调整提示，避免 applyGuideState 每帧覆盖 markReady 的提示
+      if (this.captureMode === 'reference') {
+        if (state.ok && !this.refDetected) {
+          this.hintMain = '面部已对准，请点击参照物框确认'
+          this.hintSub = '将银行卡置于框内后点击确认'
+        } else if (!state.ok) {
+          this.hintMain = state.hintMain || '请调整姿势'
+          this.hintSub = state.hintSub || ''
+        } else {
+          this.hintMain = '已对准，请点击下方拍摄'
+          this.hintSub = '点击后将开始 3 秒倒计时'
+        }
+      } else {
+        this.hintMain = state.hintMain || '请调整姿势'
+        this.hintSub = state.hintSub || ''
+      }
+
       if (state.ok && !wasOk) {
         hapticReady()
       }
