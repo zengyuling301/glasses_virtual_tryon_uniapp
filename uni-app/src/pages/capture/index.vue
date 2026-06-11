@@ -99,7 +99,7 @@
 </template>
 
 <script>
-import { clearSession, setFacePath, getCaptureMode, setRefCalibData } from '../../utils/session.js'
+import { clearSession, setFacePath, getCaptureMode, setCaptureMode, setRefCalibData } from '../../utils/session.js'
 import { getH5CameraBlockReason, pickImageViaNativeInput } from '../../utils/h5Env.js'
 import { hapticReady } from '../../utils/haptic.js'
 import { drawVideoToCanvas, H5_MIRROR_FRONT_PREVIEW } from '../../utils/h5Camera.js'
