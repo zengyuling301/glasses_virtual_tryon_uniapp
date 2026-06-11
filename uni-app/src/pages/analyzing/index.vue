@@ -67,11 +67,25 @@ export default {
         }
         setAnalyzeResult(data.metrics, recs)
 
-        try {
-          const firstTryon = await tryOnFace(facePath, recs[0].id)
-          setTryonCacheEntry(recs[0].id, firstTryon)
-        } catch (e) {
-          console.warn('prefetch tryon', e)
+        // 并行预加载 Top1 与 Top2 试戴图（框线/说明书要求测算与推荐款预加载并行）
+        this.statusHint = '正在为您匹配镜框…'
+        const preloadTasks = []
+        if (recs[0]?.id) {
+          preloadTasks.push(
+            tryOnFace(facePath, recs[0].id)
+              .then((img) => setTryonCacheEntry(recs[0].id, img))
+              .catch((e) => console.warn('prefetch tryon top1', e))
+          )
+        }
+        if (recs[1]?.id) {
+          preloadTasks.push(
+            tryOnFace(facePath, recs[1].id)
+              .then((img) => setTryonCacheEntry(recs[1].id, img))
+              .catch((e) => console.warn('prefetch tryon top2', e))
+          )
+        }
+        if (preloadTasks.length) {
+          await Promise.all(preloadTasks)
         }
 
         uni.redirectTo({ url: '/pages/workspace/index?frameIndex=0' })
