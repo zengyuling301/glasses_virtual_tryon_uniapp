@@ -722,7 +722,7 @@ $orange: #ff6b00;
   position: absolute;
   left: 0;
   right: 0;
-  top: 12%;
+  top: 8%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -730,11 +730,11 @@ $orange: #ff6b00;
   z-index: 2;
 }
 .ref-face-frame {
-  margin-bottom: 16rpx;
+  margin-bottom: 24rpx;
 }
 .face-oval-mini {
-  width: 340rpx;
-  height: 420rpx;
+  width: 400rpx;
+  height: 520rpx;
   border: 4rpx solid $blue;
   border-radius: 46% 46% 42% 42%;
   box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.30);
@@ -744,8 +744,8 @@ $orange: #ff6b00;
   border-color: $green;
 }
 .ref-object-frame {
-  width: 360rpx;
-  height: 120rpx;
+  width: 280rpx;
+  height: 176rpx;
   border: 3rpx dashed $blue;
   border-radius: 16rpx;
   display: flex;
@@ -754,6 +754,7 @@ $orange: #ff6b00;
   background: rgba(15, 23, 42, 0.35);
   transition: border-color 0.25s, background 0.25s;
   pointer-events: auto; /* 允许点击确认 */
+  margin-left: 80rpx; /* 偏右下，贴合右手持卡习惯 */
 }
 .ref-object-frame.is-ready {
   border-color: $green;
@@ -761,7 +762,7 @@ $orange: #ff6b00;
   background: rgba(34, 197, 94, 0.15);
 }
 .ref-hint-text {
-  font-size: 24rpx;
+  font-size: 22rpx;
   color: rgba(255, 255, 255, 0.7);
 }
 .ref-hint-text.ok {
