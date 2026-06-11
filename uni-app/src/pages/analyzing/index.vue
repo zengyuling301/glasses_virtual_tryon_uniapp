@@ -16,7 +16,7 @@
 
 <script>
 import { analyzeFace, tryOnFace, pingApi } from '../../utils/api.js'
-import { getFacePath, setAnalyzeResult, setTryonCacheEntry, getRefCalibData } from '../../utils/session.js'
+import { getFacePath, setAnalyzeResult, setTryonCacheEntry, getRefCalibData, getCaptureMode } from '../../utils/session.js'
 import { API_BASE } from '../../config/index.js'
 
 export default {
@@ -35,7 +35,8 @@ export default {
       this.run()
     },
     goCapture() {
-      uni.redirectTo({ url: '/pages/capture/index' })
+      const mode = getCaptureMode()
+      uni.redirectTo({ url: `/pages/capture/index?mode=${mode}` })
     },
     async run() {
       const facePath = getFacePath()

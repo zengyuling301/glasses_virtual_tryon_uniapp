@@ -63,7 +63,6 @@ export function clearSession() {
   uni.removeStorageSync(METRICS)
   uni.removeStorageSync(RECS)
   uni.removeStorageSync(TRYON_CACHE)
-  uni.removeStorageSync(CAPTURE_MODE)
-  uni.removeStorageSync(REF_CALIB_DATA)
+  // CAPTURE_MODE 与 REF_CALIB_DATA 为流程级数据，由 P0/P1 控制生命周期，不在此处清除
 }
 

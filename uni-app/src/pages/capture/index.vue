@@ -507,11 +507,12 @@ export default {
       uni.showToast({ title: '请先对准并等待摄像头就绪', icon: 'none' })
     },
     goAnalyze(filePath) {
-      // reference 模式下将参照物标定数据写入 session，供 P2 上传时携带
+      // 先清除旧试戴数据，再写入本次数据，避免 clearSession 覆盖刚写入的内容
+      clearSession()
+      setCaptureMode(this.captureMode)
       if (this.captureMode === 'reference' && this.refCalibData) {
         setRefCalibData(this.refCalibData)
       }
-      clearSession()
       setFacePath(filePath)
       uni.navigateTo({ url: '/pages/analyzing/index' })
     },
