@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Flask API for uni-app: analyze face → recommend frames → static try-on PNG.
+(Updated to support 3D model serving for WebGL frontend integration).
 
 Run from repo root (so ``assets/`` resolves):
 
@@ -170,6 +171,7 @@ def index():
             "endpoints": [
                 "GET /api/catalog",
                 "GET /api/frame-preview/<frame_id>",
+                "GET /api/model3d/<frame_id>",
                 "POST /api/analyze",
                 "POST /api/tryon",
             ],
@@ -184,7 +186,7 @@ def api_catalog():
 
 @app.route("/api/frame-preview/<frame_id>")
 def api_frame_preview(frame_id: str):
-    """返回 catalog 中该款镜架的 PNG（透明线框图），供推荐列表展示。"""
+    """返回 catalog 中该款镜架的 PNG（透明线框图），供推荐列表展示与 2D 试戴 fallback。"""
     spec = _frame_by_id(_load_catalog(), frame_id)
     if spec is None:
         abort(404)
@@ -198,6 +200,24 @@ def api_frame_preview(frame_id: str):
     if path.parent != FRAMES_DIR.resolve() or not path.is_file():
         abort(404)
     return send_file(path, mimetype="image/png")
+
+
+@app.route("/api/model3d/<frame_id>")
+def api_model3d(frame_id: str):
+    """返回 catalog 中该款镜架的 3D 模型文件 (.glb)，供前端 WebGL 引擎实时渲染。"""
+    spec = _frame_by_id(_load_catalog(), frame_id)
+    if spec is None:
+        abort(404)
+    raw = spec.get("model_3d")
+    if not isinstance(raw, str) or not raw.strip():
+        abort(404, description="No 3D model configured for this frame.")
+    name = Path(raw).name
+    if Path(raw).parts != (name,):
+        abort(404)
+    path = (FRAMES_DIR / name).resolve()
+    if path.parent != FRAMES_DIR.resolve() or not path.is_file():
+        abort(404)
+    return send_file(path, mimetype="model/gltf-binary")
 
 
 @app.route("/api/analyze", methods=["POST"])
@@ -249,6 +269,7 @@ def api_analyze():
                     "name": r["name"],
                     "band": r["band"],
                     "image": r.get("image"),
+                    "model_3d": r.get("model_3d"),
                     "mm_total_width": r.get("mm_total_width"),
                     "blurb": r.get("blurb"),
                     "match_status": r["match_status"],
