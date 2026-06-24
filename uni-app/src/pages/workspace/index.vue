@@ -10,11 +10,23 @@
     </view>
 
     <view v-if="detailOpen && metrics" class="detail-panel">
-      <text class="detail-row">颊/瞳比 {{ metrics.cheek_over_ipd }}</text>
-      <text class="detail-row">脸宽分档 {{ bandText }}</text>
-      <text class="detail-row">瞳距约 {{ metrics.ipd_px }} px（示意，非验光）</text>
-      <text v-if="metrics.low_confidence" class="detail-warn">{{ metrics.low_confidence_reason }}</text>
+      <view class="detail-header">
+        <text class="detail-title">面部测量数据</text>
+        <text class="detail-close" @tap="toggleDetail">✕</text>
+      </view>
+      <view class="detail-body">
+        <text class="detail-row detail-primary">面宽：{{ faceWidthMm }} mm</text>
+        <text class="detail-row detail-primary">脸型：{{ faceShape }}</text>
+        <text class="detail-row detail-primary">推荐镜框总宽：{{ recMin }}–{{ recMax }} mm</text>
+        <text class="detail-row detail-formula">总面宽 = 镜片宽度 × 2 + 中梁宽度</text>
+        <view class="detail-divider" />
+        <text class="detail-row detail-secondary">颊/瞳比：{{ metrics.cheek_over_ipd }}</text>
+        <text class="detail-row detail-secondary">脸宽分档：{{ bandLabel(metrics.band) }}</text>
+        <text class="detail-row detail-secondary">瞳距约 {{ metrics.ipd_px }} px（示意，非验光）</text>
+        <text v-if="metrics.low_confidence" class="detail-warn">{{ metrics.low_confidence_reason }}</text>
+      </view>
     </view>
+    <view v-if="detailOpen" class="detail-mask" @tap="toggleDetail" />
 
     <view class="preview-zone">
       <swiper
@@ -70,6 +82,7 @@
     <finish-sheet
       :visible="finishOpen"
       :preview-src="currentTryonSrc"
+      :frame="currentFrame"
       @close="finishOpen = false"
       @remeasure="onRemeasure"
     />
@@ -93,7 +106,10 @@ import {
   adaptLevel,
   matchStatusLabel,
   bandLabel,
+  estimateFaceWidthMm,
+  faceShapeText,
 } from '../../utils/adapt.js'
+import { playSwitchFeedback } from '../../utils/haptic.js'
 import EnhanceDrawer from '../../components/enhance-drawer/enhance-drawer.vue'
 import FinishSheet from '../../components/finish-sheet/finish-sheet.vue'
 
@@ -119,10 +135,21 @@ export default {
       return this.recommendations[this.currentIndex] || null
     },
     summaryLine() {
-      return faceSummaryLine(this.metrics, this.recommendations)
+      return faceSummaryLine(this.metrics, this.currentFrame)
     },
-    bandText() {
-      return bandLabel(this.metrics && this.metrics.band)
+    faceWidthMm() {
+      return estimateFaceWidthMm(this.metrics)
+    },
+    faceShape() {
+      return faceShapeText(this.metrics && this.metrics.band)
+    },
+    recMin() {
+      const mm = this.faceWidthMm
+      return mm ? mm - 2 : null
+    },
+    recMax() {
+      const mm = this.faceWidthMm
+      return mm ? mm + 2 : null
     },
     bannerText() {
       return adaptBannerText(this.currentFrame)
@@ -162,6 +189,9 @@ export default {
     this.ensureTryon(this.currentIndex)
   },
   methods: {
+    bandLabel(band) {
+      return bandLabel(band)
+    },
     tryonSrc(frameId) {
       return this.cache[frameId] || ''
     },
@@ -183,6 +213,8 @@ export default {
       })
     },
     onRemeasure() {
+      const { clearSession } = require('../../utils/session.js')
+      clearSession()
       uni.redirectTo({ url: '/pages/capture/index' })
     },
     onSwiperChange(e) {
@@ -193,6 +225,7 @@ export default {
       if (idx === this.currentIndex) return
       this.currentIndex = idx
       this.enhanceOverlay = ''
+      playSwitchFeedback()
       this.ensureTryon(idx)
     },
     async ensureTryon(idx) {
@@ -267,23 +300,69 @@ $green: #22c55e;
 }
 
 .detail-panel {
+  position: relative;
+  z-index: 15;
   margin: 0 24rpx 12rpx;
-  padding: 20rpx 24rpx;
+  padding: 0;
   background: #fff;
   border: 2rpx solid $blue;
   border-radius: 16rpx;
+}
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx 16rpx;
+  border-bottom: 1rpx solid #e2e8f0;
+}
+.detail-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: $blue;
+}
+.detail-close {
+  font-size: 26rpx;
+  color: #94a3b8;
+  padding: 4rpx 12rpx;
+}
+.detail-body {
+  padding: 16rpx 24rpx 20rpx;
 }
 .detail-row {
   display: block;
   font-size: 26rpx;
   color: #334155;
-  line-height: 1.6;
+  line-height: 1.7;
+}
+.detail-row.detail-primary {
+  font-weight: 500;
+  color: #1e293b;
+}
+.detail-row.detail-formula {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  color: #64748b;
+}
+.detail-row.detail-secondary {
+  font-size: 24rpx;
+  color: #64748b;
+}
+.detail-divider {
+  height: 1rpx;
+  background: #e2e8f0;
+  margin: 12rpx 0;
 }
 .detail-warn {
   display: block;
-  margin-top: 8rpx;
+  margin-top: 12rpx;
   font-size: 24rpx;
   color: #ef4444;
+  line-height: 1.5;
+}
+.detail-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
 }
 
 .preview-zone {

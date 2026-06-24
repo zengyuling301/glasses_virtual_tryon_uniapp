@@ -34,20 +34,29 @@ export function bandLabel(band) {
   return BAND_LABEL[band] || band || '—'
 }
 
-/** 顶条展示用：MVP 无毫米面宽，用分档 + 推荐镜宽区间示意 */
-export function faceSummaryLine(metrics, recommendations) {
+/** 前端估算面宽 mm（无景深/无参照物时，用颊瞳比 × 平均瞳距 63mm × 微调系数 1.05） */
+export function estimateFaceWidthMm(metrics) {
+  if (!metrics) return null
+  const ratio = metrics.cheek_over_ipd || 0
+  if (ratio <= 0) return null
+  return Math.round(ratio * 63 * 1.05)
+}
+
+export function faceShapeText(band) {
+  const map = { S: '偏窄/椭圆', M: '标准', L: '偏宽/方圆' }
+  return map[band] || '—'
+}
+
+/** 顶条展示用：优先展示面宽 mm + 当前款适配状态 */
+export function faceSummaryLine(metrics, currentFrame) {
   if (!metrics) return '测算中…'
-  const band = bandLabel(metrics.band)
-  const widths = (recommendations || [])
-    .map((r) => r.mm_total_width)
-    .filter((w) => typeof w === 'number')
-  let range = ''
-  if (widths.length) {
-    const min = Math.min(...widths)
-    const max = Math.max(...widths)
-    range = ` · 推荐镜宽约 ${min}–${max} mm`
+  const mm = estimateFaceWidthMm(metrics)
+  const status = currentFrame ? matchStatusLabel(currentFrame.match_status) : '—'
+  if (mm) {
+    return `面宽 ${mm}mm · ${status}`
   }
-  return `脸宽分档 ${band}${range}`
+  const band = bandLabel(metrics.band)
+  return `脸宽分档 ${band}`
 }
 
 export function adaptBannerText(frame) {

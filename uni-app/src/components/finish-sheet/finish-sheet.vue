@@ -6,23 +6,19 @@
 
       <view class="action" @tap="onCart">
         <text class="ico">🛒</text>
-        <text>加入购物车（跳转商品详情）</text>
+        <text>加入购物车</text>
       </view>
       <view class="action" @tap="onFavorite">
         <text class="ico">♡</text>
         <text>收藏</text>
       </view>
-      <view class="action" @tap="onSave(true)">
+      <view class="action" @tap="onSave(false)">
         <text class="ico">↓</text>
-        <text>保存到相册（有水印 · 待接 SDK）</text>
+        <text>保存到相册</text>
       </view>
-      <view class="action accent" @tap="onSave(false)">
-        <text class="ico">↓</text>
-        <text class="accent-txt">保存高清（无水印 · 待接 SDK）</text>
-      </view>
-      <view class="action" @tap="onShare">
+      <view class="action accent" @tap="onShare">
         <text class="ico">↗</text>
-        <text>分享</text>
+        <text class="accent-txt">分享</text>
       </view>
 
       <view class="divider" />
@@ -41,44 +37,110 @@ export default {
   props: {
     visible: { type: Boolean, default: false },
     previewSrc: { type: String, default: '' },
+    frame: { type: Object, default: null },
   },
   methods: {
     onCart() {
-      uni.showToast({ title: '接入商品库后跳转 SKU', icon: 'none' })
+      if (!this.frame) {
+        uni.showToast({ title: '未选中款式', icon: 'none' })
+        return
+      }
+      const url = this.frame.product_url || `https://www.kxym.com/product/${this.frame.id}`
+      // #ifdef H5
+      window.open(url, '_blank')
+      // #endif
+      // #ifndef H5
+      uni.navigateTo({ url: `/pages/webview/index?url=${encodeURIComponent(url)}` })
+      // #endif
+      this.$emit('close')
     },
     onFavorite() {
-      uni.showToast({ title: '已收藏（示意）', icon: 'none' })
+      if (!this.frame) {
+        uni.showToast({ title: '未选中款式', icon: 'none' })
+        return
+      }
+      const key = 'tryon_favorites'
+      let list = []
+      try {
+        const raw = uni.getStorageSync(key)
+        if (raw) list = JSON.parse(raw)
+      } catch (_) {}
+      const exists = list.some((item) => item.id === this.frame.id)
+      if (exists) {
+        uni.showToast({ title: '已收藏过', icon: 'none' })
+        return
+      }
+      list.push({
+        id: this.frame.id,
+        name: this.frame.name,
+        image: this.frame.image,
+        mm_total_width: this.frame.mm_total_width,
+        band: this.frame.band,
+        savedAt: Date.now(),
+      })
+      uni.setStorageSync(key, JSON.stringify(list))
+      uni.showToast({ title: '已收藏', icon: 'success' })
+      this.$emit('close')
     },
-    onSave(watermark) {
+    onSave(_watermark) {
       if (!this.previewSrc) {
         uni.showToast({ title: '暂无试戴图', icon: 'none' })
         return
       }
       // #ifdef H5
-      uni.showToast({
-        title: watermark ? 'H5 请长按图片保存' : '无水印版待后端提供',
-        icon: 'none',
-      })
+      if (this.previewSrc.startsWith('data:')) {
+        const a = document.createElement('a')
+        a.href = this.previewSrc
+        a.download = 'tryon.png'
+        a.click()
+        uni.showToast({ title: '已开始下载', icon: 'success' })
+      } else {
+        uni.showToast({ title: '请长按图片保存', icon: 'none' })
+      }
       // #endif
       // #ifndef H5
+      let filePath = this.previewSrc
       if (this.previewSrc.startsWith('data:')) {
-        uni.showToast({ title: '保存功能需写入临时文件后调用相册 API', icon: 'none' })
-        return
+        // base64 写入临时文件
+        const fs = uni.getFileSystemManager()
+        const tmp = `${uni.env.USER_DATA_PATH}/tryon_${Date.now()}.png`
+        const base64 = this.previewSrc.replace(/^data:image\/\w+;base64,/, '')
+        try {
+          fs.writeFileSync(tmp, base64, 'base64')
+          filePath = tmp
+        } catch (e) {
+          uni.showToast({ title: '写入失败', icon: 'none' })
+          return
+        }
       }
       uni.saveImageToPhotosAlbum({
-        filePath: this.previewSrc,
+        filePath,
         success: () => uni.showToast({ title: '已保存', icon: 'success' }),
         fail: () => uni.showToast({ title: '保存失败，请检查相册权限', icon: 'none' }),
       })
       // #endif
+      this.$emit('close')
     },
     onShare() {
+      // #ifdef APP-PLUS
+      uni.shareWithSystem({
+        type: 'image',
+        imageUrl: this.previewSrc || '',
+        success: () => this.$emit('close'),
+        fail: () => uni.showToast({ title: '分享失败', icon: 'none' }),
+      })
+      // #endif
       // #ifdef MP-WEIXIN
-      uni.showToast({ title: '请使用 onShareAppMessage 配置', icon: 'none' })
+      uni.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline'],
+      })
+      uni.showToast({ title: '点击右上角分享', icon: 'none' })
       // #endif
-      // #ifndef MP-WEIXIN
-      uni.showToast({ title: '分享面板待接入 APP SDK', icon: 'none' })
+      // #ifdef H5
+      uni.showToast({ title: '请使用浏览器分享', icon: 'none' })
       // #endif
+      this.$emit('close')
     },
   },
 }
